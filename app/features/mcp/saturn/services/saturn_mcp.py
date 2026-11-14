@@ -516,15 +516,18 @@ class SaturnMcp:
             return int(value)
         # First call: start from the rows that already exist. This count ran on every call
         # before, against the largest table, even when the row was there.
+        # Each parameter is used twice, so each use states its type. Left to itself PostgreSQL
+        # reads one use as varchar and the other as text and refuses the statement
+        # ("inconsistent types deduced for parameter $1"); SQLite never checks.
         value = await session.scalar(
             text(
                 """
                 INSERT INTO audit_counters (organization_id, event, value)
                 VALUES (
-                    :org,
-                    :event,
+                    CAST(:org AS VARCHAR),
+                    CAST(:event AS VARCHAR),
                     (SELECT COALESCE(COUNT(*), 0) + 1 FROM audit_logs
-                     WHERE organization_id = :org AND event = :event)
+                     WHERE organization_id = CAST(:org AS VARCHAR) AND event = CAST(:event AS VARCHAR))
                 )
                 ON CONFLICT (organization_id, event)
                 DO UPDATE SET value = audit_counters.value + 1
