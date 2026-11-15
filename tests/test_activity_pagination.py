@@ -111,6 +111,16 @@ async def test_the_source_filter_reads_the_column_not_the_payload(client):
             _mcp("evt_console", at, source="console", payload={"source": "console"}),
         ],
     )
+    # On PostgreSQL migration 063's insert trigger copies the payload's source into the column,
+    # so clear it afterwards to get a row that has the source only in its payload.
+    from sqlalchemy import update
+
+    generator, session = await _db(client)
+    try:
+        await session.execute(update(AuditLog).where(AuditLog.id == "evt_payload_only").values(source=None))
+        await session.commit()
+    finally:
+        await generator.aclose()
     listed = {item["id"] for item in (await client.get("/activity", params={"limit": 1000})).json()}
     assert "evt_column_only" in listed
     assert "evt_payload_only" not in listed
