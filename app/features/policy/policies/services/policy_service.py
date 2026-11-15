@@ -13,6 +13,7 @@ from app.models import Agent, Policy, PolicyRule
 from app.shared.models.associations import agent_policies
 from app.schemas import PolicyCreate, PolicyRead, PolicyRuleIn, PolicyRuleRead, PolicyUpdate
 from app.features.policy.policies.services.default_policy import MARKER
+from app.features.policy.policies.services.policy_revision import bump_policy_revision
 from app.features.policy.policies.services.limits import (
     LLM_ORG_LIMIT,
     LLM_USER_LIMIT,
@@ -284,7 +285,11 @@ class PolicyService:
                 status.HTTP_400_BAD_REQUEST,
                 "The organization default policy cannot be deleted. Change its rules or pause it instead.",
             )
+        await bump_policy_revision(session, policy.organization_id)
         await session.execute(delete(agent_policies).where(agent_policies.c.policy_id == policy.id))
+        # Forget the loaded links, or deleting the policy deletes those rows again and fails
+        # because they are already gone.
+        session.expire(policy, ["agents"])
         # The rules go with the policy through the relationship's cascade. Deleting them here as
         # well made the cascade delete rows that were already gone.
         await session.delete(policy)
@@ -372,9 +377,9 @@ class PolicyService:
         await session.flush()
         await self._set_agents(session, policy.id, organization_id, agent_ids)
         if definition is not None:
-            await self._replace_compiled(session, policy.id, definition)
+            await self._replace_compiled(session, policy.id, organization_id, definition)
         else:
-            await self._replace_rules(session, policy.id, prepared or [], keep_ids=set())
+            await self._replace_rules(session, policy.id, organization_id, prepared or [], keep_ids=set())
         await session.flush()
         return await self.get_policy(session, policy.id, organization_id)
 
@@ -458,12 +463,14 @@ class PolicyService:
             if definition_set and body.tool_set_id is None:
                 policy.tool_set_id = definition_set
             policy.definition = definition
-            await self._replace_compiled(session, policy.id, definition)
+            await self._replace_compiled(session, policy.id, organization_id, definition)
             if policy.status in {"active", "validated"}:
                 policy.status = "draft"
             changed = True
         elif prepared is not None:
-            await self._replace_rules(session, policy.id, prepared, keep_ids={rule.id for rule in policy.rules})
+            await self._replace_rules(
+                session, policy.id, organization_id, prepared, keep_ids={rule.id for rule in policy.rules}
+            )
             if policy.status in {"active", "validated"}:
                 policy.status = "draft"
             changed = True
@@ -482,6 +489,7 @@ class PolicyService:
     ) -> None:
         # Check the ids before anything is removed: a refused request is still committed.
         agents = await self._load_agents(session, organization_id, agent_ids)
+        await bump_policy_revision(session, organization_id)
         await session.execute(delete(agent_policies).where(agent_policies.c.policy_id == policy_id))
         if agents:
             await session.execute(
@@ -512,10 +520,12 @@ class PolicyService:
         self,
         session: AsyncSession,
         policy_id: str,
+        organization_id: str,
         prepared: list[tuple[PolicyRuleIn, tuple[str, str, list[dict], str, int | None]]],
         *,
         keep_ids: set[str],
     ) -> None:
+        await bump_policy_revision(session, organization_id)
         await session.execute(delete(PolicyRule).where(PolicyRule.policy_id == policy_id))
         await session.flush()
         used: set[str] = set()
@@ -867,11 +877,14 @@ class PolicyService:
             "ruleId": result.matched_rule_id,
         }
 
-    async def _replace_compiled(self, session: AsyncSession, policy_id: str, definition: dict) -> None:
+    async def _replace_compiled(
+        self, session: AsyncSession, policy_id: str, organization_id: str, definition: dict
+    ) -> None:
         try:
             compiled, _errors = compile_definition(definition, strict=True)
         except PolicyGraphTooLarge as exc:
             raise bad_request(str(exc)) from exc
+        await bump_policy_revision(session, organization_id)
         await session.execute(delete(PolicyRule).where(PolicyRule.policy_id == policy_id))
         await session.flush()
         for index, rule in enumerate(compiled):

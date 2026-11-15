@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import DateTime, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.ids import utcnow
+from app.core.ids import new_revision, utcnow
 from app.db.database import Base
 
 
@@ -21,6 +21,9 @@ class Organization(Base):
     runtime_region: Mapped[str] = mapped_column(String(64), default="asia-east1", nullable=False)
     runtime_version: Mapped[str] = mapped_column(String(32), default="0.1.0", nullable=False)
     billing: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # Changes in the same transaction as every write that can change a policy decision. The
+    # policy engine's cache is used only while it still matches. See policy_revision.py.
+    policy_revision: Mapped[Optional[str]] = mapped_column(String(32), default=new_revision, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
