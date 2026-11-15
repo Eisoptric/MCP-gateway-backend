@@ -96,7 +96,9 @@ async def test_a_listening_stream_gives_its_connection_back_first(monkeypatch):
         return SimpleNamespace(id="user_1"), "Agent", "client_1"
 
     async def found(session_id, user_id, client_id):
-        return SimpleNamespace(queue=None, streams=0)
+        import asyncio
+
+        return SimpleNamespace(queue=asyncio.Queue(), streams=0)
 
     monkeypatch.setattr(controller, "_caller", caller)
     monkeypatch.setattr(controller.mcp_sessions, "get", found)

@@ -320,11 +320,15 @@ class SaturnMcp:
         existing = await session.get(Agent, agent_id) if agent_id else None
         if existing is not None and not self._owns(existing, user, client_id):
             return ""
-        agent = existing or await self._find_client_agent(session, user, profile_id, name, client_id)
-        if agent is not None and not self._owns(agent, user, client_id):
-            # Registration names and redirect URIs are self-reported, not proof of app identity.
-            # A new client must receive its own agent and explicit tool assignments.
-            agent = None
+        agent = existing or await self._owned_client_agent(session, user, profile_id, name, client_id)
+        locked = False
+        if agent is None:
+            # Initializes with different names each find no agent and each pass the count below,
+            # so together they could pass the limit. They take turns on the user's row instead.
+            await self._lock_user(session, user)
+            locked = True
+            # A request that waited reuses what the one before it created, rather than counting it.
+            agent = await self._owned_client_agent(session, user, profile_id, name, client_id)
         if agent is None:
             refused = await self._over_agent_limit(session, user, client_id)
             if refused:
@@ -348,7 +352,29 @@ class SaturnMcp:
         agent.name = name
         agent.last_seen_at = utcnow()
         await session.flush()
+        if locked:
+            # The row lock lasts until the transaction ends. Release it now: a tools/call that
+            # created its agent here would otherwise hold it through policy evaluation.
+            await session.commit()
         return ""
+
+    async def _owned_client_agent(
+        self,
+        session: AsyncSession,
+        user: User,
+        profile_id: str,
+        name: str,
+        client_id: str,
+    ) -> Agent | None:
+        agent = await self._find_client_agent(session, user, profile_id, name, client_id)
+        # Registration names and redirect URIs are self-reported, not proof of app identity.
+        # A new client must receive its own agent and explicit tool assignments.
+        return agent if agent is not None and self._owns(agent, user, client_id) else None
+
+    async def _lock_user(self, session: AsyncSession, user: User) -> None:
+        # NO KEY UPDATE, not UPDATE: rows that reference the user (their foreign-key checks take
+        # KEY SHARE) can still be written meanwhile. SQLite has no row locks and ignores it.
+        await session.execute(select(User.id).where(User.id == user.id).with_for_update(key_share=True))
 
     async def _new_client_agent(
         self,
