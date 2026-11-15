@@ -220,3 +220,27 @@ async def test_step_up_with_a_passkey_requires_user_verification(client):
         json={"credential": passkey.answer(options.json())},
     )
     assert verified.status_code == 204, verified.text
+
+
+async def test_changing_the_password_does_not_count_as_step_up(client):
+    """A stolen session plus a known password must not skip the second factor."""
+    from sqlalchemy import update
+
+    from app.core.ids import utcnow
+    from app.models import AuthSession
+
+    await _with_totp(client)
+    session, generator = await _session()
+    try:
+        # Signed in an hour ago: the guarded routes need a step-up.
+        await session.execute(update(AuthSession).values(authenticated_at=utcnow() - timedelta(hours=1)))
+        await session.commit()
+    finally:
+        await generator.aclose()
+    assert (await client.post("/auth/passkeys/options", headers={"Origin": ORIGIN})).status_code == 403
+
+    changed = await client.patch("/auth/password", json={"current_password": "saturn", "new_password": "saturn-changed-1"})
+    assert changed.status_code == 204, changed.text
+    # Still signed in, and still asked for the second factor.
+    assert (await client.get("/auth/me")).status_code == 200
+    assert (await client.post("/auth/passkeys/options", headers={"Origin": ORIGIN})).status_code == 403

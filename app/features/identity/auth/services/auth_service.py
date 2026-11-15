@@ -437,9 +437,10 @@ class AuthService:
         self._require_password(new_password)
         user.password_hash = await in_thread(hash_password, new_password)
         keep_hash = hash_token(keep_token) if keep_token else None
+        # The session that changed the password stays signed in, but it is not marked as freshly
+        # authenticated: the password alone is not step-up, and marking it would let a stolen
+        # session plus a known password skip the second factor.
         await self.revoke_user_sessions(session, user.id, keep_hash=keep_hash)
-        if keep_token:
-            await self.mark_session_authenticated(session, keep_token)
         await self._revoke_oauth(session, user.id)
 
     async def check_rekey(self, user: User, current_password: str, new_password: str) -> None:
