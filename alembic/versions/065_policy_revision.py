@@ -6,7 +6,7 @@ any write that can change a decision. Each existing organization gets its own ra
 one (a row written outside the ORM) is never cached, so the engine reads it from the database.
 
 Revision ID: 065_policy_revision
-Revises: 061_approval_claimed_at
+Revises: 064_mcp_oauth_outcome
 Create Date: 2026-11-16
 
 """
@@ -19,7 +19,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision: str = "065_policy_revision"
-down_revision: Union[str, Sequence[str], None] = "061_approval_claimed_at"
+down_revision: Union[str, Sequence[str], None] = "064_mcp_oauth_outcome"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

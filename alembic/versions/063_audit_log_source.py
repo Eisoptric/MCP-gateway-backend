@@ -21,7 +21,7 @@ Steps 1 and 2 commit when step 3 starts; they are idempotent, so a retry repeats
 Other databases (the SQLite tests) take the same steps without trigger and CONCURRENTLY.
 
 Revision ID: 063_audit_log_source
-Revises: 061_approval_claimed_at
+Revises: 062_oauth_token_family
 Create Date: 2026-11-16
 
 """
@@ -33,7 +33,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision: str = "063_audit_log_source"
-down_revision: Union[str, Sequence[str], None] = "061_approval_claimed_at"
+down_revision: Union[str, Sequence[str], None] = "062_oauth_token_family"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
