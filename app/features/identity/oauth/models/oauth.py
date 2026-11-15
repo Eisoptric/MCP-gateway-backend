@@ -50,6 +50,11 @@ class OAuthAccess(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     refresh_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The authorization code this token family came from, kept through every refresh. Not a
+    # foreign key: used codes are purged a day after they expire, long before their tokens.
+    grant_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    # When that code was exchanged. Refreshing never extends the family past REFRESH_FAMILY_TTL from here.
+    family_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
