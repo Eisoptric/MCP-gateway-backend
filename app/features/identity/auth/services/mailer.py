@@ -425,10 +425,15 @@ _INVITE = {
 
 def invite_link(token: str, email: str = "") -> str:
     """The invitee's address rides along: the console salts the password hash with it, so it must
-    be the exact address the account is created under."""
+    be the exact address the account is created under.
+
+    Both go after "#": a browser never sends the fragment to a server, so the token stays out of
+    access logs and proxies. The console reads the fragment first and still accepts the query
+    string of links sent before this change.
+    """
     from urllib.parse import quote
 
-    link = f"{console_origin()}/accept-invite?token={quote(token, safe='')}"
+    link = f"{console_origin()}/accept-invite#token={quote(token, safe='')}"
     if email:
         link += f"&email={quote(email.strip().lower(), safe='@')}"
     return link

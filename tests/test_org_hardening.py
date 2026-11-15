@@ -63,10 +63,10 @@ def test_invite_link_points_at_console_accept_page():
     from app.features.identity.auth.services.mailer import _invite_message, invite_link
 
     link = invite_link("inv_abc+/=")
-    assert link.endswith("/accept-invite?token=inv_abc%2B%2F%3D")
+    assert link.endswith("/accept-invite#token=inv_abc%2B%2F%3D")
     subject, text, html = _invite_message("inv_abc", "Acme", "Rick", 7, "en-US")
     assert "Acme" in subject
-    assert link.split("?")[0] in text
+    assert link.split("#")[0] + "#token=inv_abc" in text
     assert "inv_abc" in html
 
 
@@ -429,7 +429,7 @@ def test_invite_link_carries_the_invitee_address():
     from app.features.identity.auth.services.mailer import _invite_message, invite_link
 
     link = invite_link("inv_abc", "New.Person+ops@Example.com")
-    assert link.endswith("/accept-invite?token=inv_abc&email=new.person%2Bops@example.com")
+    assert link.endswith("/accept-invite#token=inv_abc&email=new.person%2Bops@example.com")
     _subject, text, html = _invite_message("inv_abc", "Acme", "", 7, "en-US", "ops@example.com")
     assert "email=ops@example.com" in text
     assert "email=ops@example.com" in html
