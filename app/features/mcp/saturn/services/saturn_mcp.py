@@ -1006,7 +1006,7 @@ class SaturnMcp:
                 tool.name,
                 status=ApprovalStatus.INVALIDATED.value,
             )
-        if not await approval_lifecycle.move(session, approval, CLAIM):
+        if not await approval_lifecycle.move(session, approval, CLAIM, now=utcnow()):
             if approval.is_expired:
                 return _approval_expired(request_id, approval, approval.expired_phase or "resubmit", tool.name)
             return rpc_error(request_id, -32005, "execution_in_progress")
@@ -1036,18 +1036,34 @@ class SaturnMcp:
 
         call = ClaimedCall(session, approval, action, run, organization_id=agent.organization_id)
         try:
-            executed = await call.run(lambda: self._proxy(session, tool, arguments), audit)
+            executed = await call.run(lambda: self._proxy(session, tool, arguments, claimed=True), audit)
         except OutcomeUncertain:
             return rpc_error(request_id, -32005, "execution_uncertain")
         return rpc_result(request_id, executed.result)
 
-    async def _proxy(self, session: AsyncSession, tool: Tool, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _proxy(
+        self,
+        session: AsyncSession,
+        tool: Tool,
+        arguments: dict[str, Any],
+        *,
+        claimed: bool = False,
+    ) -> dict[str, Any]:
+        """Send the call upstream. `claimed`: for an approval's claimed call, a failure before
+        anything is sent raises NotSent, so the approval is kept for a later attempt."""
+        from app.features.execution.approvals.services.claimed_call import NotSent
         from app.features.mcp.oauth.services.mcp_oauth import mcp_oauth
         from app.features.mcp.servers.services.mcp_remote import McpUnauthorized
 
         server = tool.mcp_server
         endpoint = (server.endpoint if server is not None else "") or tool.mcp_endpoint
-        secret = await mcp_oauth.authorization_for(session, server)
+        try:
+            secret = await mcp_oauth.authorization_for(session, server)
+        except Exception as exc:
+            # The key service is down, or the connection needs signing in again.
+            if claimed:
+                raise NotSent() from exc
+            raise
         upstream = tool.upstream_name or tool.name
         # End the transaction before waiting on the upstream, which can take a minute. It holds a
         # pooled connection and this organization's audit counter row, so a slow tool would stall

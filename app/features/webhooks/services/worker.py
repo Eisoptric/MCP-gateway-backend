@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from app.db.database import SessionLocal
+from app.features.execution.approvals.services.claimed_call import settle_stuck_claims
 from app.features.execution.approvals.services.expiration import expire_due
 from app.features.webhooks.services.webhook_service import deliver_due
 
@@ -17,6 +18,7 @@ async def run_webhook_worker() -> None:
         try:
             async with SessionLocal() as session:
                 await expire_due(session)
+                await settle_stuck_claims(session)
                 await deliver_due(session)
                 await session.commit()
         except asyncio.CancelledError:
