@@ -43,6 +43,10 @@ from app.features.webhooks.models.webhook import WebhookAttempt, WebhookDelivery
 from app.features.identity.auth.models.user import User
 from app.shared.models.status_day import StatusDay
 
+# Registers the session events that keep organizations.policy_revision current. Imported here so
+# they are in place before any session writes a policy.
+import app.features.policy.policies.services.policy_revision  # noqa: E402,F401
+
 __all__ = [
     "Action",
     "Agent",

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import copy
 import math
 import operator
 import re
+import threading
 import unicodedata
+from collections import OrderedDict
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from types import MappingProxyType
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -12,7 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Agent, ApprovalPolicy, ApprovalRequirement, Policy, PolicyRule, Tool
+from app.models import Agent, ApprovalPolicy, ApprovalRequirement, Organization, Policy, PolicyRule, Tool
+from app.features.policy.policies.services.policy_revision import BUMPED
 from app.core.enums import PolicyDecision
 
 _CONDITION = re.compile(
@@ -49,7 +55,8 @@ _DECISION_ALIASES = {
 @dataclass(frozen=True)
 class EvaluationResult:
     decision: PolicyDecision
-    matched_rule: PolicyRule | None = None
+    # A PolicyRule, or the engine's cached copy of one (CachedRule): read it, never write it.
+    matched_rule: PolicyRule | Any | None = None
     policy_id: str | None = None
     policy_name: str | None = None
     policy_version: int | None = None
@@ -511,7 +518,7 @@ def merge_results(results: list[EvaluationResult]) -> EvaluationResult:
     return replace(best, alternatives=tuple(others))
 
 
-def _stamp(opinion: EvaluationResult, policy: Policy) -> EvaluationResult:
+def _stamp(opinion: EvaluationResult, policy: Policy | CachedPolicy) -> EvaluationResult:
     fields = {"policy_name": policy.name, "policy_version": policy.version or 1}
     return replace(
         opinion,
@@ -523,16 +530,106 @@ def _stamp(opinion: EvaluationResult, policy: Policy) -> EvaluationResult:
     )
 
 
-def _policy_applies(policy: Policy, agent: Agent) -> bool:
+@dataclass(frozen=True)
+class CachedRule:
+    """A PolicyRule as the engine reads it, detached from any session."""
+
+    id: str
+    policy_id: str
+    tool: str
+    condition: str
+    conditions: list[dict[str, Any]] | None
+    decision: str
+    position: int
+    expression: dict[str, Any] | None
+    attributes: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class CachedPolicy:
+    id: str
+    name: str
+    version: int | None
+    status: str | None
+    graph: bool
+    agent_ids: frozenset[str]
+    rules_by_tool: Mapping[str, tuple[CachedRule, ...]]
+
+
+def _snapshot(policy: Policy) -> CachedPolicy:
+    # Deep copies, so a later in-place change to the session's objects cannot reach the cache.
+    by_tool: dict[str, list[CachedRule]] = {}
+    for rule in policy.rules:
+        by_tool.setdefault(rule.tool, []).append(
+            CachedRule(
+                id=rule.id,
+                policy_id=rule.policy_id,
+                tool=rule.tool,
+                condition=rule.condition,
+                conditions=copy.deepcopy(rule.conditions),
+                decision=rule.decision,
+                position=rule.position,
+                expression=copy.deepcopy(rule.expression),
+                attributes=copy.deepcopy(rule.attributes),
+            )
+        )
+    definition = policy.definition if isinstance(policy.definition, dict) else None
+    return CachedPolicy(
+        id=policy.id,
+        name=policy.name,
+        version=policy.version,
+        status=policy.status,
+        graph=bool(definition and definition.get("nodes")),
+        agent_ids=frozenset(agent.id for agent in policy.agents or []),
+        rules_by_tool=MappingProxyType({tool: tuple(rules) for tool, rules in by_tool.items()}),
+    )
+
+
+class PolicyCache:
+    """Each organization's policies, keyed on its policy_revision. Per process and bounded.
+
+    An entry is returned only for the exact revision it was loaded under, so a write that replaced
+    the revision is seen on the next call. There is no time-based expiry: correctness rests on the
+    revision alone, and the size bound only limits memory.
+    """
+
+    def __init__(self, size: int = 512) -> None:
+        self._size = size
+        self._entries: OrderedDict[str, tuple[str, tuple[CachedPolicy, ...]]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, organization_id: str, revision: str) -> tuple[CachedPolicy, ...] | None:
+        with self._lock:
+            entry = self._entries.get(organization_id)
+            if entry is None or entry[0] != revision:
+                return None
+            self._entries.move_to_end(organization_id)
+            return entry[1]
+
+    def put(self, organization_id: str, revision: str, policies: tuple[CachedPolicy, ...]) -> None:
+        with self._lock:
+            self._entries[organization_id] = (revision, policies)
+            self._entries.move_to_end(organization_id)
+            while len(self._entries) > self._size:
+                self._entries.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+
+def _policy_applies(policy: CachedPolicy, agent: Agent) -> bool:
     if (policy.status or "active").lower() != "active":
         return False
-    agents = list(getattr(policy, "agents", None) or [])
-    if not agents:
+    if not policy.agent_ids:
         return True
-    return any(item.id == agent.id for item in agents)
+    return agent.id in policy.agent_ids
 
 
 class PolicyEngine:
+    def __init__(self) -> None:
+        self.cache = PolicyCache()
+
     async def evaluate(
         self,
         session: AsyncSession,
@@ -561,14 +658,13 @@ class PolicyEngine:
     ) -> EvaluationResult:
         policies = await self._policies(session, organization_id)
         opinions: list[EvaluationResult] = []
-        applicable: dict[str, Policy] = {}
+        applicable: dict[str, CachedPolicy] = {}
         for policy in policies:
             if not _policy_applies(policy, agent):
                 continue
             applicable[policy.id] = policy
-            tool_rules = [rule for rule in policy.rules if rule.tool == tool_name]
-            definition = policy.definition if isinstance(policy.definition, dict) else None
-            if definition and definition.get("nodes"):
+            tool_rules = list(policy.rules_by_tool.get(tool_name, ()))
+            if policy.graph:
                 if not tool_rules:
                     continue
                 opinions.append(_stamp(evaluate_graph_rules(tool_rules, arguments, agent.id), policy))
@@ -633,14 +729,32 @@ class PolicyEngine:
 
         return max(candidates, key=strictness)
 
-    async def _policies(self, session: AsyncSession, organization_id: str) -> list[Policy]:
+    async def _policies(self, session: AsyncSession, organization_id: str) -> tuple[CachedPolicy, ...]:
+        # One small read per call. Read before the policies, so a write committed in between can
+        # only leave newer policies under an older key, never older ones under a newer key.
+        revision = await session.scalar(
+            select(Organization.policy_revision).where(Organization.id == organization_id)
+        )
+        # No revision (a row written outside the ORM), or this transaction changed policies itself
+        # and may still roll back or change them again: load, and keep nothing.
+        cacheable = revision is not None and not session.info.get(BUMPED)
+        if cacheable:
+            cached = self.cache.get(organization_id, revision)
+            if cached is not None:
+                return cached
+        policies = await self._load_policies(session, organization_id)
+        if cacheable:
+            self.cache.put(organization_id, revision, policies)
+        return policies
+
+    async def _load_policies(self, session: AsyncSession, organization_id: str) -> tuple[CachedPolicy, ...]:
         result = await session.execute(
             select(Policy)
             .options(selectinload(Policy.rules), selectinload(Policy.agents))
             .where(Policy.organization_id == organization_id)
             .order_by(Policy.created_at.asc())
         )
-        return list(result.scalars().unique().all())
+        return tuple(_snapshot(policy) for policy in result.scalars().unique().all())
 
 
 policy_engine = PolicyEngine()
