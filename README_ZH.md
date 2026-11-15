@@ -6,7 +6,7 @@
 
 Agent 只呼叫一個 MCP 端點。Saturn 只讓每個 Agent 看到自己的工具集，每一次呼叫都先經過政策檢查，敏感的呼叫交給人核准，其餘的帶著密封的憑證轉送到真正的 MCP 伺服器，並記錄每一個步驟。
 
-[![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue.svg)](LICENSE.md)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688.svg?logo=fastapi&logoColor=white)
 [![Test](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/actions/workflows/test.yml/badge.svg)](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/actions/workflows/test.yml)
@@ -391,4 +391,4 @@ Cloud Run + Cloud SQL + Memorystore，金庫使用 Cloud KMS。[部署 workflow]
 
 ## 授權
 
-[FSL-1.1-ALv2](LICENSE.md)。著作權屬於 Rick Weng。你可以為任何目的閱讀、稽核、修改與自行架設這份程式碼，但不得用來提供與之競爭的商業服務。每個版本發布兩年後，也會以 Apache 2.0 授權提供。
+[Apache License 2.0](LICENSE) © 2026 Rick Weng。詳見 [`NOTICE`](NOTICE)。在此之前發布的版本採用 FSL-1.1-ALv2 授權。

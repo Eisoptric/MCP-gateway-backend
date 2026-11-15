@@ -6,7 +6,7 @@
 
 Agents call one MCP endpoint. Saturn shows each agent only its tool set, checks every call against policy, holds the sensitive ones for a person to approve, forwards the rest to the real MCP server with a sealed credential, and records each step.
 
-[![License: FSL-1.1-ALv2](https://img.shields.io/badge/license-FSL--1.1--ALv2-blue.svg)](LICENSE.md)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688.svg?logo=fastapi&logoColor=white)
 [![Test](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/actions/workflows/test.yml/badge.svg)](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/actions/workflows/test.yml)
@@ -391,4 +391,4 @@ See [`infra/gcp/README.md`](infra/gcp/README.md) for setup, every deploy variabl
 
 ## License
 
-[FSL-1.1-ALv2](LICENSE.md). Copyright Rick Weng. You may read, audit, modify and self-host this code for any purpose except offering a competing commercial service. Two years after each version is released, it also becomes available under Apache 2.0.
+[Apache License 2.0](LICENSE) © 2026 Rick Weng. See [`NOTICE`](NOTICE). Versions released before this change were licensed under FSL-1.1-ALv2.
