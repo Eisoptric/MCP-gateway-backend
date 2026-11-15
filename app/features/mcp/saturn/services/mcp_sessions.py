@@ -33,6 +33,8 @@ class McpSession:
     client_id: str
     queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=MAX_QUEUED_NOTICES))
     touched: float = field(default_factory=time.monotonic)
+    # Counts event streams opened on this record, so only the newest one may detach it.
+    streams: int = 0
 
 
 class McpSessionHub:
@@ -169,7 +171,15 @@ class McpSessionHub:
         await self._redis.delete(f"saturn:mcp:session:{session_id}")
         await self._redis.publish(CHANNEL, json.dumps({"kind": "close", "session_id": session_id}))
 
-    async def detach(self, session_id: str) -> None:
+    def listen(self, record: McpSession) -> int:
+        """An event stream starts reading this record. Returns the token its detach must pass.
+
+        Call it right after get(), with no await in between, so a detach cannot slip in.
+        """
+        record.streams += 1
+        return record.streams
+
+    async def detach(self, record: McpSession, stream: int) -> None:
         """The event stream ended; the session itself goes on.
 
         A proxy or the platform ends a long stream sooner or later. The client then opens the
@@ -177,8 +187,13 @@ class McpSessionHub:
         there is the session, so only this instance's copy and its queue are dropped. Without
         Redis this record is the only one and stays until it is idle too long.
         """
-        if self._redis is not None:
-            self._items.pop(session_id, None)
+        if self._redis is None:
+            return
+        # A client that reconnected on this instance before the old stream ended shares this
+        # record with its new stream. Dropping it then would hide later notices from that stream.
+        if record.streams != stream or self._items.get(record.session_id) is not record:
+            return
+        self._items.pop(record.session_id, None)
 
     def reset(self) -> None:
         for session_id in list(self._items):

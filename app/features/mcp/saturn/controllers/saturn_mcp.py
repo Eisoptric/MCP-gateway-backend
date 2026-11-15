@@ -144,6 +144,7 @@ async def saturn_mcp_listen(request: Request, session: SessionDep) -> StreamingR
     record = await mcp_sessions.get(session_id, user.id, client_id)
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "MCP session not found")
+    stream = mcp_sessions.listen(record)
     # The stream can stay open for minutes and never touches the database again. Give the
     # connection back now; otherwise a handful of listening agents would hold the whole pool.
     await session.commit()
@@ -165,7 +166,7 @@ async def saturn_mcp_listen(request: Request, session: SessionDep) -> StreamingR
         finally:
             # Only the stream ends here. The platform cuts every request off at its time limit,
             # and ending the session with it made each client initialize again that often.
-            await mcp_sessions.detach(session_id)
+            await mcp_sessions.detach(record, stream)
 
     return StreamingResponse(
         events(),
