@@ -256,6 +256,43 @@ async def test_upstream_calls_reuse_one_client_per_host_and_never_share_across_h
 
 
 @pytest.mark.asyncio
+async def test_an_upstream_cookie_never_reaches_another_call_on_the_shared_client(monkeypatch):
+    import json
+
+    import httpx
+
+    from app.features.mcp.servers.services import mcp_remote
+
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        token = request.headers["authorization"].removeprefix("Bearer ")
+        seen.append((token, body["method"], request.headers.get("cookie")))
+        result = {} if body["method"] == "initialize" else {"content": []}
+        # Like a gateway that turns a good token into a session cookie.
+        return httpx.Response(
+            200,
+            json={"jsonrpc": "2.0", "id": body["id"], "result": result},
+            headers={"set-cookie": f"session={token}-{body['method']}; Path=/; Secure; HttpOnly"},
+        )
+
+    built = _mock_upstream(monkeypatch, handler)
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "org-a-token")
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "org-b-token")
+    assert len(built) == 1
+    assert seen == [
+        ("org-a-token", "initialize", None),
+        # Within one call the cookie still follows initialize, as it did with a client per call.
+        ("org-a-token", "tools/call", "session=org-a-token-initialize"),
+        # The next call, here another organization's, starts with none.
+        ("org-b-token", "initialize", None),
+        ("org-b-token", "tools/call", "session=org-b-token-initialize"),
+    ]
+    assert not built[0].cookies
+
+
+@pytest.mark.asyncio
 async def test_a_dead_kept_connection_retries_initialize_but_never_a_tool_call(monkeypatch):
     import httpx
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 import re
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
@@ -203,10 +204,16 @@ _clients: dict[str, httpx.AsyncClient] = {}
 _LIMITS = httpx.Limits(max_connections=50, max_keepalive_connections=10, keepalive_expiry=30)
 
 
+def _no_cookies() -> CookieJar:
+    """A jar that keeps nothing. The shared client serves every organization calling this host,
+    so a cookie it kept from one organization's call would go out on the next organization's."""
+    return CookieJar(policy=DefaultCookiePolicy(allowed_domains=[]))
+
+
 def _client_for(host: str) -> httpx.AsyncClient:
     client = _clients.get(host)
     if client is None or client.is_closed:
-        client = httpx.AsyncClient(follow_redirects=False, trust_env=False, limits=_LIMITS)
+        client = httpx.AsyncClient(follow_redirects=False, trust_env=False, limits=_LIMITS, cookies=_no_cookies())
         _clients[host] = client
     return client
 
@@ -228,6 +235,7 @@ async def _rpc(
     request_id: int,
     sni: str = "",
     *,
+    cookies: httpx.Cookies,
     timeout: float = 60,  # noqa: ASYNC109 (httpx's per-phase timeouts for this request, not a deadline for the coroutine)
 ) -> httpx.Response:
     # initialize changes nothing upstream, so it is sent again when a kept connection turns out
@@ -236,7 +244,7 @@ async def _rpc(
     attempts = 2 if method == "initialize" else 1
     for attempt in range(attempts):
         try:
-            return await _send(client, endpoint, headers, method, params, request_id, sni, timeout)
+            return await _send(client, endpoint, headers, method, params, request_id, sni, timeout, cookies)
         except _STALE as exc:
             if attempt + 1 < attempts:
                 continue
@@ -263,6 +271,7 @@ async def _send(
     request_id: int,
     sni: str,
     timeout: float,  # noqa: ASYNC109
+    cookies: httpx.Cookies,
 ) -> httpx.Response:
     request = client.build_request(
         "POST",
@@ -272,7 +281,11 @@ async def _send(
         extensions={"sni_hostname": sni} if sni else None,
         timeout=timeout,
     )
+    # Cookies live only as long as one call (initialize, then the request that follows it), as
+    # they did when each call had its own client. Some upstreams route the session by cookie.
+    cookies.set_cookie_header(request)
     response = await client.send(request, stream=True)
+    cookies.extract_cookies(response)
     try:
         body = bytearray()
         async for chunk in response.aiter_bytes():
@@ -301,6 +314,7 @@ async def list_remote_tools(endpoint: str, authorization: str = "") -> list[dict
     url, request_url, header_auth, host = await asyncio.to_thread(_target, endpoint, authorization)
     headers = {**_headers(header_auth), "Host": host}
     client = _client_for(host)
+    cookies = httpx.Cookies()
     init = await _rpc(
         client,
         request_url,
@@ -313,13 +327,14 @@ async def list_remote_tools(endpoint: str, authorization: str = "") -> list[dict
         },
         1,
         host,
+        cookies=cookies,
         timeout=20,
     )
     _raise_for_status(init, url)
     session_id = init.headers.get("mcp-session-id", "")
     if session_id:
         headers = {**_headers(header_auth, session_id), "Host": host}
-    listed = await _rpc(client, request_url, headers, "tools/list", {}, 2, host, timeout=20)
+    listed = await _rpc(client, request_url, headers, "tools/list", {}, 2, host, cookies=cookies, timeout=20)
     _raise_for_status(listed, url)
     tools = _tools(_payload(listed))
     if not tools:
@@ -345,6 +360,7 @@ async def call_remote_tool(
     url, request_url, header_auth, host = await asyncio.to_thread(_target, endpoint, authorization)
     headers = {**_headers(header_auth), "Host": host}
     client = _client_for(host)
+    cookies = httpx.Cookies()
     init = await _rpc(
         client,
         request_url,
@@ -357,6 +373,7 @@ async def call_remote_tool(
         },
         1,
         host,
+        cookies=cookies,
     )
     _raise_for_status(init, url)
     session_id = init.headers.get("mcp-session-id", "")
@@ -370,6 +387,7 @@ async def call_remote_tool(
         {"name": name, "arguments": arguments},
         2,
         host,
+        cookies=cookies,
     )
     _raise_for_status(called, url, call=True)
     body = _payload(called, call=True)
