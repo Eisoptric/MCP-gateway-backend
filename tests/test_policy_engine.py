@@ -148,3 +148,89 @@ def test_ordering_conditions_need_numbers():
     for value in ["$1000", "1,000", " 1000", True, None, "abc"]:
         assert clean_condition({"field": "amount", "operator": "gt", "value": value}) is None, repr(value)
     assert clean_condition({"field": "env", "operator": "eq", "value": "prod"})["value"] == "prod"
+
+
+# A deny on one recipient must not be dodged by respelling it, and an allow must not grow to cover respellings.
+
+RECIPIENT_DENY = [
+    _rule(0, 'recipient == "attacker@example.com"', "deny"),
+    _rule(1, "true", "allow"),
+]
+
+LOOKALIKES = [
+    "Attacker@Example.com ",
+    "ATTACKER@EXAMPLE.COM",
+    " attacker@example.com",
+    "attacker@example.com\t",
+    "ａｔｔａｃｋｅｒ@example.com",
+    "attacker​@example.com",
+    "Attacker@Example.Com\n",
+]
+
+
+def test_a_respelled_recipient_is_still_denied():
+    for value in ["attacker@example.com", *LOOKALIKES]:
+        assert evaluate_rules(RECIPIENT_DENY, {"recipient": value}).decision == PolicyDecision.DENY, repr(value)
+    assert evaluate_rules(RECIPIENT_DENY, {"recipient": "friend@example.com"}).decision == PolicyDecision.ALLOW
+
+
+def test_structured_and_graph_eq_deny_catch_lookalikes():
+    from app.features.policy.policies.services.policy_engine import evaluate_graph_rules
+
+    structured = [
+        SimpleNamespace(
+            position=0,
+            condition="true",
+            conditions=[{"field": "recipient", "operator": "eq", "value": "attacker@example.com"}],
+            decision="deny",
+            policy_id="p",
+        ),
+        _rule(1, "true", "allow"),
+    ]
+    graph = [
+        SimpleNamespace(
+            position=0, condition="", decision="deny", policy_id="p",
+            expression={"op": "cmp", "field": "recipient", "operator": "eq", "value": "attacker@example.com"},
+        ),
+        SimpleNamespace(position=1, condition="", decision="allow", policy_id="p", expression={"op": "true"}),
+    ]
+    for value in LOOKALIKES:
+        assert evaluate_rules(structured, {"recipient": value}).decision == PolicyDecision.DENY, repr(value)
+        assert evaluate_graph_rules(graph, {"recipient": value}, None).decision == PolicyDecision.DENY, repr(value)
+    assert evaluate_graph_rules(graph, {"recipient": "friend@example.com"}, None).decision == PolicyDecision.ALLOW
+
+
+def test_ne_deny_does_not_trust_a_lookalike_of_the_allowed_value():
+    # Deny every recipient except the trusted one.
+    rules = [_rule(0, 'recipient != "ops@corp.com"', "deny"), _rule(1, "true", "allow")]
+    assert evaluate_rules(rules, {"recipient": "ops@corp.com"}).decision == PolicyDecision.ALLOW
+    for value in ["OPS@corp.com", "ops@corp.com ", "ops​@corp.com", "other@corp.com"]:
+        assert evaluate_rules(rules, {"recipient": value}).decision == PolicyDecision.DENY, repr(value)
+
+
+def test_an_allow_is_not_widened_to_lookalikes():
+    eq_allow = [_rule(0, 'recipient == "ops@corp.com"', "allow")]
+    assert evaluate_rules(eq_allow, {"recipient": "ops@corp.com"}).decision == PolicyDecision.ALLOW
+    assert evaluate_rules(eq_allow, {"recipient": "OPS@corp.com "}).decision == PolicyDecision.DENY
+    # Allow anyone but one recipient: a lookalike of that recipient is not allowed either.
+    ne_allow = [_rule(0, 'recipient != "attacker@example.com"', "allow")]
+    assert evaluate_rules(ne_allow, {"recipient": "friend@example.com"}).decision == PolicyDecision.ALLOW
+    assert evaluate_rules(ne_allow, {"recipient": "Attacker@Example.com"}).decision == PolicyDecision.DENY
+
+
+def test_text_folding_leaves_numbers_and_booleans_alone():
+    from app.features.policy.policies.services.policy_engine import compare
+
+    assert compare("==", 5, 5) is True
+    assert compare("==", 5, "5") is True
+    assert compare("!=", 5, 6) is True
+    assert compare("==", 1.5, 1.50) is True
+    assert compare("==", True, True) is True
+    assert compare("==", True, False) is False
+    assert compare("!=", False, True) is True
+    # A boolean is not the text "true", and a number is not a padded numeric string.
+    assert compare("==", True, "true") is None
+    assert compare("==", 5, " 5") is None
+    assert compare("==", "abc", "abc") is True
+    assert compare("==", "abc", "abd") is False
+    assert compare("==", "ABC", "abc") is None

@@ -25,6 +25,7 @@ from app.shared.models.associations import (
     employee_mcp_servers,
 )
 from app.features.organization.org.services.mapping_service import mapping_service
+from app.features.policy.policies.services.policy_revision import bump_policy_revision
 
 
 class RemovalService:
@@ -52,6 +53,7 @@ class RemovalService:
         await session.execute(delete(employee_agents).where(employee_agents.c.agent_id == agent.id))
         await session.execute(delete(agent_mcp_servers).where(agent_mcp_servers.c.agent_id == agent.id))
         await self._pause_policies_left_unscoped(session, user, agent)
+        await bump_policy_revision(session, agent.organization_id)
         await session.execute(delete(agent_policies).where(agent_policies.c.agent_id == agent.id))
         await self._drop_json_id(session, agent.organization_id, "agent", agent.id)
         self._unlink_loaded(session, agent, ("agents",))

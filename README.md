@@ -295,7 +295,7 @@ Settings come from the environment (or `.env`); see `.env.example`. App settings
 | `SATURN_SECRET_PROJECT` | empty | Google Cloud project for Secret Manager; empty keeps sealed secrets in the database |
 | `RESEND_API_KEY` / `RESEND_FROM` | empty | Email delivery for invites, codes and notices |
 | `POLICY_LLM_BASE_URL` / `POLICY_LLM_API_KEY` / `POLICY_LLM_MODEL` | empty | OpenAI-compatible `/chat/completions` endpoint for drafted policy rules |
-| `LEGACY_PASSWORD_UNTIL` | empty | ISO date after which legacy (pre-argon2) passwords stop working; empty means no end date |
+| `LEGACY_PASSWORD_UNTIL` | empty | ISO date until which legacy (pre-argon2) passwords still work. Empty means they never do. While it is in the future, every failed sign-in also sends the legacy proofs, the raw password included, so set it only for a deployment that still has accounts from before 2026-10-16 |
 
 Read directly from the process environment:
 

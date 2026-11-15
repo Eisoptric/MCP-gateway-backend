@@ -21,8 +21,10 @@ class AuditCounter(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     __table_args__ = (
-        # The activity list: one organization, newest first.
+        # The activity list: one organization, newest first. PostgreSQL reads it backwards for DESC.
         Index("ix_audit_logs_org_created", "organization_id", "created_at", "id"),
+        # The same list narrowed to one source, which is how the console reads it.
+        Index("ix_audit_logs_org_source_created", "organization_id", "source", "created_at", "id"),
         Index("ix_audit_logs_action_id", "action_id"),
     )
 
@@ -38,6 +40,8 @@ class AuditLog(Base):
     tool: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     result: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # A copy of payload["source"], so the list can filter and page on an index. The payload key stays.
+    source: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     content_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False, index=True

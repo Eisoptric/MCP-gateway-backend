@@ -556,3 +556,143 @@ async def test_a_rotated_refresh_token_survives_a_request_that_fails_afterwards(
         assert await module.mcp_oauth.refresh_after_reject(session, server, "access-1") == "access-2"
     finally:
         await generator.aclose()
+
+
+async def _start_notion(client, nonce: str) -> str:
+    started = await client.post(
+        "/mcp-servers/oauth/start",
+        json={"name": "Notion", "endpoint": "https://mcp.notion.com/mcp", "nonce": nonce},
+    )
+    assert started.status_code == 200, started.text
+    return parse_qs(urlparse(started.json()["authorization_url"]).query)["state"][0]
+
+
+@pytest.mark.asyncio
+async def test_the_console_reads_a_finished_sign_in_by_its_nonce(client, monkeypatch):
+    # Some provider pages cut the popup off from the console, so the console asks the API instead.
+    monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
+    _notion_flow(monkeypatch, [])
+    state = await _start_notion(client, "attempt-ok-1")
+
+    waiting = await client.get("/mcp-servers/oauth/attempts/attempt-ok-1")
+    assert waiting.status_code == 200, waiting.text
+    assert waiting.json()["status"] == "pending"
+    assert waiting.json()["expires_at"]
+    assert waiting.headers["cache-control"] == "no-store"
+
+    await client.get("/mcp-servers/oauth/callback", params={"code": "code-1", "state": state})
+    done = (await client.get("/mcp-servers/oauth/attempts/attempt-ok-1")).json()
+    assert done["status"] == "connected"
+    assert done["reason"] is None and done["message"] is None
+
+    from sqlalchemy import select
+
+    from app.db.database import get_session
+    from app.main import app
+    from app.models import McpOAuthPending
+
+    generator = app.dependency_overrides[get_session]()
+    session = await anext(generator)
+    try:
+        row = await session.scalar(select(McpOAuthPending).where(McpOAuthPending.nonce == "attempt-ok-1"))
+    finally:
+        await generator.aclose()
+    # The outcome is kept; the secrets that finished it are not.
+    assert row.verifier_ciphertext == "" and row.client_secret_ciphertext == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("params", "reason", "text"),
+    [
+        ({"error": "access_denied"}, "access_denied", "did not grant"),
+        ({"error": "server_error"}, "provider_error", "(server_error)"),
+        ({"error": "<script>bad</script>"}, "provider_error", "reported an error."),
+        ({}, "no_code", "authorization code"),
+    ],
+)
+async def test_a_failed_sign_in_tells_the_console_why(client, monkeypatch, params, reason, text):
+    monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
+    _notion_flow(monkeypatch, [])
+    state = await _start_notion(client, "attempt-fail-1")
+    await client.get("/mcp-servers/oauth/callback", params={**params, "state": state})
+    body = (await client.get("/mcp-servers/oauth/attempts/attempt-fail-1")).json()
+    assert body["status"] == "failed"
+    assert body["reason"] == reason
+    assert text in body["message"]
+    assert "<script>" not in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_token_exchange_reaches_the_console_without_secrets(client, monkeypatch):
+    monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
+    _notion_flow(monkeypatch, [])
+    from app.features.mcp.oauth.services import mcp_oauth as module
+
+    original = module._request
+
+    async def refusing(method, url, **kwargs):
+        if url == "https://auth.example/token":
+            return _response(400, {"error": "invalid_grant", "access_token": "", "client_secret": "leak"})
+        return await original(method, url, **kwargs)
+
+    monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth._request", refusing)
+    state = await _start_notion(client, "attempt-token-1")
+    await client.get("/mcp-servers/oauth/callback", params={"code": "code-1", "state": state})
+    body = (await client.get("/mcp-servers/oauth/attempts/attempt-token-1")).json()
+    assert body["status"] == "failed"
+    assert body["reason"] == "token_exchange_failed"
+    assert body["message"] == "MCP provider did not return an access token"
+
+
+@pytest.mark.asyncio
+async def test_a_sign_in_opened_elsewhere_is_reported_to_the_member_who_started_it(client, monkeypatch):
+    monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
+    _notion_flow(monkeypatch, [])
+    state = await _start_notion(client, "attempt-elsewhere")
+    other = httpx.AsyncClient(transport=client._transport, base_url=str(client.base_url))
+    try:
+        await other.get("/mcp-servers/oauth/callback", params={"code": "x", "state": state})
+    finally:
+        await other.aclose()
+    body = (await client.get("/mcp-servers/oauth/attempts/attempt-elsewhere")).json()
+    assert body["status"] == "failed"
+    assert body["reason"] == "browser_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_an_unfinished_sign_in_expires(client, monkeypatch):
+    monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
+    _notion_flow(monkeypatch, [])
+    await _start_notion(client, "attempt-late-1")
+    from datetime import timedelta
+
+    from app.core.ids import utcnow
+
+    monkeypatch.setattr(
+        "app.features.mcp.oauth.services.mcp_oauth.utcnow", lambda: utcnow() + timedelta(minutes=16)
+    )
+    body = (await client.get("/mcp-servers/oauth/attempts/attempt-late-1")).json()
+    assert body["status"] == "expired"
+    assert body["reason"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_a_sign_in_attempt_is_readable_only_by_the_member_who_started_it(client, monkeypatch):
+    monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
+    _notion_flow(monkeypatch, [])
+    await _start_notion(client, "attempt-mine-1")
+
+    assert (await client.get("/mcp-servers/oauth/attempts/attempt-unknown")).status_code == 404
+    assert (await client.get("/mcp-servers/oauth/attempts/bad nonce!")).status_code == 404
+
+    from tests.test_org_hardening import _member
+
+    colleague = await _member(client, "colleague@saturn.ai", role="operator")
+    seen = await client.get("/mcp-servers/oauth/attempts/attempt-mine-1", headers=colleague)
+    assert seen.status_code == 404
+    anonymous = httpx.AsyncClient(transport=client._transport, base_url=str(client.base_url))
+    try:
+        assert (await anonymous.get("/mcp-servers/oauth/attempts/attempt-mine-1")).status_code == 401
+    finally:
+        await anonymous.aclose()

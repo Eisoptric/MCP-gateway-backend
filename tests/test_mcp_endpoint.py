@@ -317,4 +317,308 @@ async def test_a_dead_kept_connection_retries_initialize_but_never_a_tool_call(m
     fail["tools/call"] = 1
     with pytest.raises(mcp_remote.McpTimeout):
         await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    # The session from the first call is reused, so tools/call goes first, and is still never resent.
+    assert seen == ["tools/call"]
+    # The failure drops the kept session: the next call opens a new one.
+    seen.clear()
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
     assert seen == ["initialize", "tools/call"]
+
+
+# Kept upstream sessions --------------------------------------------------------------------------
+
+
+class _Upstream:
+    """A stateful MCP server: initialize opens a session, other requests must carry its id."""
+
+    def __init__(self) -> None:
+        self.seen: list[tuple[str, str, str | None, str | None]] = []
+        self.sessions: set[str] = set()
+        self.opened = 0
+        self.on_call = None  # optional override for tools/call
+        self.after = None  # optional (request, response) -> response
+
+    def __call__(self, request):
+        response = self.respond(request)
+        return self.after(request, response) if self.after is not None else response
+
+    def respond(self, request):
+        import json
+
+        import httpx
+
+        body = json.loads(request.content)
+        token = request.headers.get("authorization", "").removeprefix("Bearer ")
+        sid = request.headers.get("mcp-session-id")
+        self.seen.append((token, body["method"], sid, request.headers.get("cookie")))
+        if body["method"] == "initialize":
+            self.opened += 1
+            new = f"s{self.opened}-{token}"
+            self.sessions.add(new)
+            return httpx.Response(
+                200,
+                json={"jsonrpc": "2.0", "id": body["id"], "result": {"protocolVersion": "2024-11-05"}},
+                headers={"mcp-session-id": new, "set-cookie": f"affinity={token}; Path=/; Secure"},
+            )
+        if sid not in self.sessions:
+            return httpx.Response(404, text="Session not found")
+        if body["method"] == "tools/call" and self.on_call is not None:
+            return self.on_call(request)
+        result = {"tools": [{"name": "t"}]} if body["method"] == "tools/list" else {"content": []}
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": result})
+
+    def methods(self):
+        return [method for _token, method, _sid, _cookie in self.seen]
+
+
+@pytest.mark.asyncio
+async def test_a_kept_session_skips_initialize_on_the_next_call(monkeypatch):
+    from app.features.mcp.servers.services import mcp_remote
+
+    upstream = _Upstream()
+    _mock_upstream(monkeypatch, upstream)
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    await mcp_remote.list_remote_tools("https://mcp.notion.com/mcp", "token")
+    assert upstream.methods() == ["initialize", "tools/call", "tools/call", "tools/list"]
+    assert {sid for _t, method, sid, _c in upstream.seen if method != "initialize"} == {"s1-token"}
+    (kept,) = mcp_remote._sessions.values()
+    assert kept.session_id == "s1-token" and kept.protocol_version == "2024-11-05"
+    await mcp_remote.close_clients()
+    assert not mcp_remote._sessions
+
+
+@pytest.mark.asyncio
+async def test_request_ids_are_not_reused_within_a_kept_session(monkeypatch):
+    import json
+
+    from app.features.mcp.servers.services import mcp_remote
+
+    ids = []
+    upstream = _Upstream()
+
+    def handler(request):
+        ids.append(json.loads(request.content)["id"])
+        return upstream(request)
+
+    _mock_upstream(monkeypatch, handler)
+    for _ in range(3):
+        await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    assert len(ids) == 4 and len(set(ids)) == 4
+
+
+@pytest.mark.asyncio
+async def test_another_credential_never_shares_a_session_or_its_cookies(monkeypatch):
+    from app.features.mcp.servers.services import mcp_remote
+
+    upstream = _Upstream()
+    built = _mock_upstream(monkeypatch, upstream)
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "org-a-token")
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "org-b-token")
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "org-a-token")
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "org-b-token")
+    assert len(built) == 1 and not built[0].cookies
+    assert upstream.seen == [
+        ("org-a-token", "initialize", None, None),
+        ("org-a-token", "tools/call", "s1-org-a-token", "affinity=org-a-token"),
+        # Another credential opens its own session and gets none of org A's cookies.
+        ("org-b-token", "initialize", None, None),
+        ("org-b-token", "tools/call", "s2-org-b-token", "affinity=org-b-token"),
+        ("org-a-token", "tools/call", "s1-org-a-token", "affinity=org-a-token"),
+        ("org-b-token", "tools/call", "s2-org-b-token", "affinity=org-b-token"),
+    ]
+    assert len(mcp_remote._sessions) == 2
+
+
+@pytest.mark.asyncio
+async def test_no_credential_means_no_kept_session(monkeypatch):
+    from app.features.mcp.servers.services import mcp_remote
+
+    upstream = _Upstream()
+    _mock_upstream(monkeypatch, upstream)
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "")
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "")
+    assert upstream.methods() == ["initialize", "tools/call"] * 2
+    assert not mcp_remote._sessions
+
+
+@pytest.mark.asyncio
+async def test_an_expired_session_is_reopened_and_the_call_sent_exactly_once_more(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.features.mcp.servers.services import mcp_remote
+
+    upstream = _Upstream()
+    _mock_upstream(monkeypatch, upstream)
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    upstream.sessions.clear()  # the server ended the session
+    upstream.seen.clear()
+    assert "result" in await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    assert [(method, sid) for _t, method, sid, _c in upstream.seen] == [
+        ("tools/call", "s1-token"),  # 404: refused before it ran
+        ("initialize", None),
+        ("tools/call", "s2-token"),
+    ]
+    (kept,) = mcp_remote._sessions.values()
+    assert kept.session_id == "s2-token"
+
+    # If the new session is refused too, the call is not sent a third time.
+    def end_at_once(request, response):
+        if response.headers.get("mcp-session-id"):
+            upstream.sessions.clear()
+        return response
+
+    upstream.after = end_at_once
+    upstream.sessions.clear()
+    upstream.seen.clear()
+    with pytest.raises(HTTPException) as caught:
+        await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    # A 404 says the call did not run, so it is an ordinary failure, not an uncertain one.
+    assert not isinstance(caught.value, mcp_remote.McpTimeout)
+    assert upstream.methods() == ["tools/call", "initialize", "tools/call"]
+    assert not mcp_remote._sessions
+
+
+@pytest.mark.asyncio
+async def test_a_400_naming_the_session_is_treated_like_404(monkeypatch):
+    import httpx
+
+    from app.features.mcp.servers.services import mcp_remote
+
+    upstream = _Upstream()
+    _mock_upstream(monkeypatch, upstream)
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    upstream.sessions.clear()
+    upstream.seen.clear()
+
+    def as_400(request, response):
+        if response.status_code == 404:
+            return httpx.Response(
+                400,
+                json={"jsonrpc": "2.0", "id": None, "error": {"code": -32000, "message": "Bad Request: No valid session ID provided"}},
+            )
+        return response
+
+    upstream.after = as_400
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    assert upstream.methods() == ["tools/call", "initialize", "tools/call"]
+
+    # Any other 400 is an ordinary failure: no new session, no resend.
+    upstream.seen.clear()
+    upstream.on_call = lambda request: httpx.Response(400, json={"error": {"message": "invalid arguments"}})
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException):
+        await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    assert upstream.methods() == ["tools/call"]
+
+    # A 400 that echoes the request's id was read, and maybe acted on, even if it talks about a
+    # session (a booking tool's "session expired", say). It is never resent.
+    upstream.seen.clear()
+    upstream.on_call = lambda request: httpx.Response(
+        400,
+        json={"jsonrpc": "2.0", "id": __import__("json").loads(request.content)["id"], "error": {"code": -32000, "message": "Session expired"}},
+    )
+    with pytest.raises(HTTPException):
+        await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    assert upstream.methods().count("tools/call") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_tool_call_timeout_on_a_kept_session_is_uncertain_and_never_resent(monkeypatch):
+    import httpx
+
+    from app.features.execution.approvals.services.claimed_call import is_uncertain
+    from app.features.mcp.servers.services import mcp_remote
+
+    upstream = _Upstream()
+    _mock_upstream(monkeypatch, upstream)
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    upstream.seen.clear()
+
+    def timeout(request):
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    upstream.on_call = timeout
+    with pytest.raises(mcp_remote.McpTimeout) as caught:
+        await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    assert is_uncertain(caught.value)
+    assert upstream.methods() == ["tools/call"]
+    assert not mcp_remote._sessions
+
+
+@pytest.mark.asyncio
+async def test_a_server_error_after_a_tool_call_is_never_resent(monkeypatch):
+    import httpx
+
+    from app.features.execution.approvals.services.claimed_call import is_uncertain
+    from app.features.mcp.servers.services import mcp_remote
+
+    upstream = _Upstream()
+    _mock_upstream(monkeypatch, upstream)
+    upstream.on_call = lambda request: httpx.Response(500, text="Session not found")
+    # Fresh session and kept session alike: one tools/call, uncertain, even if the body names the session.
+    for expected in (["initialize", "tools/call"], ["initialize", "tools/call"]):
+        upstream.seen.clear()
+        with pytest.raises(mcp_remote.McpOutcomeUnknown) as caught:
+            await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+        assert is_uncertain(caught.value)
+        assert upstream.methods() == expected
+
+    upstream.on_call = None
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    upstream.seen.clear()
+    upstream.on_call = lambda request: httpx.Response(500)
+    with pytest.raises(mcp_remote.McpOutcomeUnknown):
+        await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    assert upstream.methods() == ["tools/call"]
+
+
+@pytest.mark.asyncio
+async def test_a_401_on_a_kept_session_drops_it(monkeypatch):
+    import httpx
+
+    from app.features.mcp.servers.services import mcp_remote
+
+    upstream = _Upstream()
+    _mock_upstream(monkeypatch, upstream)
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    upstream.seen.clear()
+    upstream.on_call = lambda request: httpx.Response(401, headers={"www-authenticate": "Bearer"})
+    with pytest.raises(mcp_remote.McpUnauthorized):
+        await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    assert upstream.methods() == ["tools/call"]
+    assert not mcp_remote._sessions
+
+
+@pytest.mark.asyncio
+async def test_a_session_older_than_the_max_age_is_reopened(monkeypatch):
+    from app.features.mcp.servers.services import mcp_remote
+
+    now = [1000.0]
+    monkeypatch.setattr(mcp_remote, "_clock", lambda: now[0])
+    upstream = _Upstream()
+    _mock_upstream(monkeypatch, upstream)
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    now[0] += mcp_remote.SESSION_MAX_AGE - 1
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    now[0] += 1
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    assert upstream.methods() == ["initialize", "tools/call", "tools/call", "initialize", "tools/call"]
+
+
+@pytest.mark.asyncio
+async def test_kept_sessions_are_bounded(monkeypatch):
+    from app.features.mcp.servers.services import mcp_remote
+
+    monkeypatch.setattr(mcp_remote, "MAX_SESSIONS", 2)
+    upstream = _Upstream()
+    _mock_upstream(monkeypatch, upstream)
+    for token in ("a-token", "b-token", "a-token", "c-token"):
+        await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, token)
+    assert len(mcp_remote._sessions) == 2
+    upstream.seen.clear()
+    # a was used more recently than b, so b was the one let go.
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "a-token")
+    await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "b-token")
+    assert upstream.methods() == ["tools/call", "initialize", "tools/call"]

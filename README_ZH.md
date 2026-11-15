@@ -295,7 +295,7 @@ Agent 錢包與 x402 付款已經移除（遷移 `039_drop_wallets_x402`）。
 | `SATURN_SECRET_PROJECT` | 空 | 用於 Secret Manager 的 Google Cloud 專案；留空則把密封的秘密存在資料庫 |
 | `RESEND_API_KEY` / `RESEND_FROM` | 空 | 寄送邀請、驗證碼與通知的 Email 服務 |
 | `POLICY_LLM_BASE_URL` / `POLICY_LLM_API_KEY` / `POLICY_LLM_MODEL` | 空 | 用於草擬政策規則、相容 OpenAI 的 `/chat/completions` 端點 |
-| `LEGACY_PASSWORD_UNTIL` | 空 | ISO 日期，過了這天舊版（argon2 之前）密碼就不能再使用；留空表示沒有期限 |
+| `LEGACY_PASSWORD_UNTIL` | 空 | ISO 日期，在這天之前舊版（argon2 之前）密碼仍可使用；留空表示一律不接受。這個日期還沒到之前，每次登入失敗都會一併送出舊版證明（包含原始密碼），所以只在還有 2026-10-16 以前建立的帳號時才設定 |
 
 直接從行程環境讀取：
 

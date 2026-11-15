@@ -93,18 +93,6 @@ async def test_agent_registers_with_oauth_and_binds_its_profile(client):
     access = token.json()["access_token"]
     assert access.startswith("sat_oa_")
 
-    reused = await client.post(
-        "/oauth/token",
-        data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "client_id": client_id,
-            "redirect_uri": "http://127.0.0.1:8765/callback",
-            "code_verifier": verifier,
-        },
-    )
-    assert reused.status_code == 400
-
     opened = await client.post(
         "/mcp",
         headers={"Authorization": f"Bearer {access}"},
@@ -118,6 +106,27 @@ async def test_agent_registers_with_oauth_and_binds_its_profile(client):
     cursor = next(item for item in listed if item["name"] == "Cursor")
     assert cursor["origin"] == "saturn_mcp"
     assert cursor["profile_id"] == "org_saturn:user_operator"
+
+    client.headers.pop("Authorization")
+    reused = await client.post(
+        "/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "client_id": client_id,
+            "redirect_uri": "http://127.0.0.1:8765/callback",
+            "code_verifier": verifier,
+        },
+    )
+    assert reused.status_code == 400
+    # Presenting the code again also ends the tokens it already issued (RFC 6749 section 4.1.2).
+    revoked = await client.post(
+        "/mcp",
+        headers={"Authorization": f"Bearer {access}"},
+        json={"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {}},
+    )
+    assert revoked.status_code == 401
+    client.headers["Authorization"] = session
 
 
 @pytest.mark.asyncio

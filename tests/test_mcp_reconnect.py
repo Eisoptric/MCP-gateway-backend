@@ -146,3 +146,110 @@ async def test_another_app_with_the_same_name_gets_its_own_empty_agent(
         json={"jsonrpc": "2.0", "id": 4, "method": "tools/list"},
     )
     assert [tool["name"] for tool in still.json()["result"]["tools"]] == ["crm.get_customer"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "step",
+    # Before the existing-id check, and between that check and the insert.
+    ["_over_agent_limit", "_insert_client_agent"],
+)
+async def test_two_initializes_at_once_share_one_agent(client, monkeypatch, step):
+    from app.features.mcp.saturn.services.saturn_mcp import SaturnMcp
+
+    access, _refresh, client_id = await oauth_tokens(client, "Claude")
+    initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "Claude"}}}
+    headers = {"Authorization": f"Bearer {access}"}
+    real = getattr(SaturnMcp, step)
+    inner: list = []
+
+    async def raced(self, *args):
+        if not inner:
+            inner.append(None)
+            # The second initialize runs to completion in its own session after this one found
+            # no agent: the order production saw.
+            inner[0] = await client.post("/mcp", headers=headers, json=initialize)
+        return await real(self, *args)
+
+    monkeypatch.setattr(SaturnMcp, step, raced)
+    outer = await client.post("/mcp", headers=headers, json=initialize)
+
+    assert inner[0].status_code == 200, inner[0].text
+    assert outer.status_code == 200, outer.text
+    assert "result" in outer.json() and outer.headers["mcp-session-id"]
+    agents = _claude((await client.get("/agents")).json())
+    assert len(agents) == 1
+    assert agents[0]["client_id"] == client_id
+    # The request that lost the race is bound to the winner's agent rather than to none.
+    from app.features.mcp.saturn.services.mcp_sessions import mcp_sessions
+
+    me = (await client.get("/auth/me")).json()["id"]
+    record = await mcp_sessions.get(outer.headers["mcp-session-id"], me, client_id)
+    assert record is not None and record.agent_id == agents[0]["id"]
+
+
+class _SharedRedis:
+    """Enough of Redis for the session hub. Published events reach the hub as its listener would."""
+
+    def __init__(self, hub) -> None:
+        self.hub = hub
+        self.values: dict[str, str] = {}
+
+    async def get(self, key: str):
+        return self.values.get(key)
+
+    async def set(self, key: str, value: str, ex=None, nx=False, xx=False):
+        if (nx and key in self.values) or (xx and key not in self.values):
+            return None
+        self.values[key] = value
+        return True
+
+    async def delete(self, key: str) -> int:
+        return int(self.values.pop(key, None) is not None)
+
+    async def publish(self, _channel: str, raw: str) -> int:
+        import json
+
+        body = json.loads(raw)
+        if body["kind"] == "notify":
+            self.hub._notify_local(body["agent_ids"])
+        elif body["kind"] == "close":
+            self.hub._close_local(body["session_id"])
+        return 1
+
+
+@pytest.mark.asyncio
+async def test_an_old_stream_ending_does_not_detach_the_new_one():
+    from app.features.mcp.saturn.services.mcp_sessions import LIST_CHANGED, McpSessionHub
+
+    hub = McpSessionHub()
+    hub._redis = _SharedRedis(hub)
+    assert await hub.open("s1", "user_1", "agent_1", "client_1") is not None
+
+    # The client reconnects on this instance before the old stream's cleanup has run.
+    old = await hub.get("s1", "user_1", "client_1")
+    old_stream = hub.listen(old)
+    new = await hub.get("s1", "user_1", "client_1")
+    new_stream = hub.listen(new)
+    await hub.detach(old, old_stream)
+
+    await hub.notify(["agent_1"])
+    assert new.queue.get_nowait() == LIST_CHANGED
+
+    # The newest stream still cleans up after itself, and the session lives on in Redis.
+    await hub.detach(new, new_stream)
+    assert "s1" not in hub._items
+    rebuilt = await hub.get("s1", "user_1", "client_1")
+    assert rebuilt is not None and rebuilt is not new
+    await hub.notify(["agent_1"])
+    assert rebuilt.queue.get_nowait() == LIST_CHANGED
+
+
+@pytest.mark.asyncio
+async def test_without_redis_a_finished_stream_keeps_the_session():
+    from app.features.mcp.saturn.services.mcp_sessions import McpSessionHub
+
+    hub = McpSessionHub()
+    record = await hub.open("s1", "user_1", "agent_1", "client_1")
+    await hub.detach(record, hub.listen(record))
+    assert await hub.get("s1", "user_1", "client_1") is record

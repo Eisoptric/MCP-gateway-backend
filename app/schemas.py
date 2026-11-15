@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
@@ -147,6 +147,13 @@ class McpOAuthBegin(BaseModel):
 class McpOAuthStart(BaseModel):
     authorization_url: str | None = None
     server: McpServerRead | None = None
+
+
+class McpOAuthAttemptRead(BaseModel):
+    status: Literal["pending", "connected", "failed", "expired"]
+    reason: str | None = None
+    message: str | None = None
+    expires_at: datetime
 
 
 class ToolSetItemWrite(BaseModel):
@@ -721,6 +728,9 @@ class ReauthRequest(BaseModel):
     password: str | None = Field(default=None, max_length=PASSWORD_LEN)
     code: str | None = Field(default=None, max_length=CODE_LEN)
     credential: MediumDict | None = None
+    # The authenticator-app code (or a backup code), required with the password or the emailed
+    # code when the account has an authenticator app.
+    totp_code: str | None = Field(default=None, max_length=CODE_LEN)
 
 
 class MemberBackup(BaseModel):

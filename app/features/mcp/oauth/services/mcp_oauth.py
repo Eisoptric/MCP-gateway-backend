@@ -15,7 +15,7 @@ from urllib.parse import urlencode, urlparse
 import httpx
 from fastapi import HTTPException, status
 from fastapi.responses import HTMLResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id, utcnow
@@ -29,7 +29,9 @@ from app.features.mcp.servers.services.mcp_endpoint import require_mcp_endpoint
 from app.features.mcp.servers.services.mcp_remote import McpUnauthorized, list_remote_tools
 from app.features.identity.oauth.services.oauth_service import pkce_s256
 
-PENDING_TTL = timedelta(minutes=10)
+PENDING_TTL = timedelta(minutes=15)
+# How long a finished sign-in's outcome stays readable after its deadline.
+OUTCOME_TTL = timedelta(minutes=10)
 # What a refresh reads from the connection row, reloaded once the row is locked.
 _GRANT_COLUMNS = ("credential_id", "token_expires_at", "oauth_token_endpoint", "oauth_client_id", "oauth_resource")
 _refresh_locks: dict[str, asyncio.Lock] = {}
@@ -396,7 +398,7 @@ class McpOAuth:
         state = secrets.token_urlsafe(32)
         browser_secret = secrets.token_urlsafe(32)
         pending_id = new_id("moa")
-        await session.execute(delete(McpOAuthPending).where(McpOAuthPending.expires_at < utcnow()))
+        await session.execute(delete(McpOAuthPending).where(McpOAuthPending.expires_at < utcnow() - OUTCOME_TTL))
         session.add(
             McpOAuthPending(
                 id=pending_id,
@@ -479,6 +481,55 @@ class McpOAuth:
         secret = str((registered or {}).get("client_secret") or "")
         return {"client_id": client_id, "client_secret": secret}
 
+    async def attempt(self, session: AsyncSession, user: User, nonce: str) -> dict[str, Any]:
+        """How the sign-in this member started with `nonce` stands. Nobody else can read it."""
+        found = None
+        if _NONCE.match(nonce or ""):
+            found = await session.scalar(
+                select(McpOAuthPending)
+                .where(
+                    McpOAuthPending.nonce == nonce,
+                    McpOAuthPending.user_id == user.id,
+                    McpOAuthPending.organization_id == user.organization_id,
+                )
+                .order_by(McpOAuthPending.created_at.desc())
+                .limit(1)
+            )
+        if found is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Sign-in not found")
+        state = found.status
+        if state in {"pending", "claimed"}:
+            # A claimed row is mid-exchange; the console only needs to keep waiting.
+            state = "expired" if state == "pending" and _aware(found.expires_at) <= utcnow() else "pending"
+        elif state not in {"connected", "failed"}:
+            state = "failed"
+        return {
+            "status": state,
+            "reason": found.reason or ("expired" if state == "expired" else None),
+            "message": found.message or None,
+            "expires_at": _aware(found.expires_at),
+        }
+
+    async def _settle(self, session: AsyncSession, pending_id: str, outcome: str, reason: str = "", message: str = "") -> None:
+        """Record how the sign-in ended and drop the secrets it no longer needs."""
+        await session.execute(
+            update(McpOAuthPending)
+            .where(McpOAuthPending.id == pending_id)
+            .values(
+                status=outcome,
+                reason=reason[:32],
+                message=message[:255],
+                finished_at=utcnow(),
+                verifier_ciphertext="",
+                client_secret_ciphertext="",
+            )
+            .execution_options(synchronize_session=False)
+        )
+
+    async def _fail(self, session: AsyncSession, pending_id: str, nonce: str, reason: str, message: str) -> HTMLResponse:
+        await self._settle(session, pending_id, "failed", reason, message)
+        return _page(False, nonce, message)
+
     async def finish(
         self,
         session: AsyncSession,
@@ -489,15 +540,25 @@ class McpOAuth:
         cookies: dict[str, str] | None = None,
     ) -> HTMLResponse:
         pending = await session.scalar(select(McpOAuthPending).where(McpOAuthPending.state_hash == hash_token(state)))
+        if pending is not None and pending.status != "pending":
+            # Already used. A second load of the callback must not tell the console it failed.
+            return _page(False, "", _EXPIRED, notify=False)
         if pending is None or _aware(pending.expires_at) <= utcnow():
-            return _page(False, "", "This sign-in expired. Close the window and connect again.")
+            return _page(False, "", _EXPIRED)
         presented = (cookies or {}).get(browser_cookie_name(pending.id), "")
         if not pending.browser_hash or not secrets.compare_digest(hash_token(presented), pending.browser_hash):
             # Someone else's browser opened this sign-in link. Never store their account for the
             # person who started it; end the sign-in so the link cannot be retried.
             from app.core.enums import ActorType, AuditEvent
 
-            await session.execute(delete(McpOAuthPending).where(McpOAuthPending.id == pending.id))
+            ended = await session.execute(
+                update(McpOAuthPending)
+                .where(McpOAuthPending.id == pending.id, McpOAuthPending.status == "pending")
+                .values(status="claimed")
+                .execution_options(synchronize_session=False)
+            )
+            if ended.rowcount == 1:
+                await self._settle(session, pending.id, "failed", "browser_mismatch", _ANOTHER_BROWSER)
             await audit_service.log(
                 session,
                 event=AuditEvent.MCP_OAUTH_REFUSED,
@@ -507,17 +568,13 @@ class McpOAuth:
                 result="browser_mismatch",
                 payload={"user_id": pending.user_id, "endpoint_host": urlparse(pending.endpoint).hostname or ""},
             )
-            return _page(
-                False,
-                "",
-                "This sign-in was started in another browser. Start it again from the Saturn console.",
-                notify=False,
-            )
+            return _page(False, "", _ANOTHER_BROWSER, notify=False)
         # Claim the sign-in before using its code. A browser can load this callback twice; only
         # one load may exchange the code, and the other must not tell the console it failed.
         claimed = await session.execute(
-            delete(McpOAuthPending)
-            .where(McpOAuthPending.id == pending.id)
+            update(McpOAuthPending)
+            .where(McpOAuthPending.id == pending.id, McpOAuthPending.status == "pending")
+            .values(status="claimed")
             .execution_options(synchronize_session=False)
         )
         if claimed.rowcount != 1:
@@ -525,9 +582,15 @@ class McpOAuth:
         session.expunge(pending)
         nonce = pending.nonce
         if error:
-            return _page(False, nonce, "The MCP provider did not grant access.")
+            if error == "access_denied":
+                return await self._fail(session, pending.id, nonce, "access_denied", "The MCP provider did not grant access.")
+            # The provider's error code is a fixed OAuth word; anything else is not repeated.
+            shown = f" ({error})" if _ERROR_CODE.match(error) else ""
+            return await self._fail(session, pending.id, nonce, "provider_error", f"The MCP provider reported an error{shown}.")
         if not code:
-            return _page(False, nonce, "The MCP provider did not return an authorization code.")
+            return await self._fail(
+                session, pending.id, nonce, "no_code", "The MCP provider did not return an authorization code."
+            )
         from app.features.credentials.vault.services.pq_crypto import SecretNeedsReconnect
 
         try:
@@ -538,14 +601,17 @@ class McpOAuth:
                 else ""
             )
         except SecretNeedsReconnect:
-            return _page(False, nonce, "This sign-in expired. Close the window and connect again.")
+            return await self._fail(session, pending.id, nonce, "expired", _EXPIRED)
         try:
             token = await self._exchange(pending, code=code, verifier=verifier, client_secret=secret)
+        except HTTPException as exc:
+            return await self._fail(session, pending.id, nonce, "token_exchange_failed", _detail(exc))
+        try:
             from app.features.mcp.servers.services.mcp_connect import mcp_connect_service
 
             user = await session.get(User, pending.user_id)
             if user is None:
-                return _page(False, nonce, "This sign-in expired. Close the window and connect again.")
+                return await self._fail(session, pending.id, nonce, "expired", _EXPIRED)
             server = await mcp_connect_service.connect(
                 session,
                 user,
@@ -556,8 +622,8 @@ class McpOAuth:
             await self._remember(session, server, pending, token, secret)
             await session.flush()
         except HTTPException as exc:
-            detail = exc.detail if isinstance(exc.detail, str) else "Could not finish sign-in."
-            return _page(False, nonce, detail)
+            return await self._fail(session, pending.id, nonce, "connect_failed", _detail(exc))
+        await self._settle(session, pending.id, "connected")
         return _page(True, nonce, "")
 
     async def _exchange(self, pending: McpOAuthPending, *, code: str, verifier: str, client_secret: str) -> dict[str, Any]:
@@ -692,6 +758,16 @@ class McpOAuth:
             result=server.name,
             payload={"credential_id": server.credential_id, "purpose": purpose},
         )
+
+
+_EXPIRED = "This sign-in expired. Close the window and connect again."
+_ANOTHER_BROWSER = "This sign-in was started in another browser. Start it again from the Saturn console."
+_ERROR_CODE = re.compile(r"^[a-z_]{1,48}$")
+
+
+def _detail(exc: HTTPException) -> str:
+    # Details raised on this path are Saturn's own sentences, never upstream bodies or tokens.
+    return exc.detail if isinstance(exc.detail, str) else "Could not finish sign-in."
 
 
 def _expires_at(token: dict[str, Any]):

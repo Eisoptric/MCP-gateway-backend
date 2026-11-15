@@ -8,7 +8,7 @@ from app.core.public_origin import public_origin
 from app.features.identity.auth.controllers.session_cookie import cookie_secure
 from app.features.identity.auth.controllers.deps import AgentsRead, CurrentUser, SaturnCloud, SessionDep, TeamWrite
 from app.models import McpServer
-from app.schemas import McpConnect, McpOAuthBegin, McpOAuthStart, McpServerRead, McpToolRead
+from app.schemas import McpConnect, McpOAuthAttemptRead, McpOAuthBegin, McpOAuthStart, McpServerRead, McpToolRead
 from app.features.organization.org.services.mapping_service import mapping_service
 from app.features.mcp.servers.services.mcp_connect import mcp_connect_service
 from app.features.mcp.oauth.services.mcp_oauth import (
@@ -114,6 +114,13 @@ async def finish_mcp_oauth(request: Request, session: SessionDep) -> HTMLRespons
         error=request.query_params.get("error", ""),
         cookies=dict(request.cookies),
     )
+
+
+@router.get("/oauth/attempts/{nonce}", response_model=McpOAuthAttemptRead)
+async def read_mcp_oauth_attempt(nonce: str, response: Response, session: SessionDep, user: CurrentUser):
+    # The console polls this while the provider's page is open; the popup window cannot tell it.
+    response.headers["Cache-Control"] = "no-store"
+    return McpOAuthAttemptRead(**await mcp_oauth.attempt(session, user, nonce))
 
 
 @router.post("", response_model=McpServerRead, status_code=201)

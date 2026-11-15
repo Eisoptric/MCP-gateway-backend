@@ -8,17 +8,22 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ids import new_id, utcnow
-from app.core.rate_limit import client_ip, limit_address
+from app.core.rate_limit import client_ip, known_address, limit_address
 from app.features.identity.auth.models.throttle import AuthThrottle
 
+# Per (email, client address): one code a minute and ten a day. Keyed by the pair, so requests
+# from other addresses never use up the quota the owner needs for their own code.
 EMAIL_LIMIT = 1
 EMAIL_WINDOW = timedelta(seconds=60)
 CLIENT_LIMIT = 8
 CLIENT_WINDOW = timedelta(minutes=10)
-# Each code allows 5 guesses and a new one every minute, so without a daily cap one address
-# could be guessed against around the clock.
 EMAIL_DAILY_LIMIT = 10
 EMAIL_DAILY_WINDOW = timedelta(days=1)
+# Per email from every address together. Each code allows 5 guesses, so this bounds how often
+# one account's codes can be guessed against in a day, and how much mail it can be sent. Past it,
+# only an address the account has signed in from may still ask: each new code replaces the
+# older ones, so the owner can always get one that works.
+EMAIL_DAILY_CEILING = 30
 _WAIT = "Wait a minute before requesting another code"
 
 
@@ -27,26 +32,46 @@ def _device(request: Request) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
-async def _hit(session: AsyncSession, bucket: str, *, limit: int, window: timedelta) -> None:
+async def _hit(
+    session: AsyncSession,
+    bucket: str,
+    *,
+    limit: int,
+    window: timedelta,
+    exempt: bool = False,
+) -> None:
     cutoff = utcnow() - window
     count = await session.scalar(
         select(func.count())
         .select_from(AuthThrottle)
         .where(AuthThrottle.bucket == bucket, AuthThrottle.created_at >= cutoff)
     )
-    if int(count or 0) >= limit:
+    if int(count or 0) >= limit and not exempt:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, _WAIT)
     session.add(AuthThrottle(id=new_id("thr"), bucket=bucket))
     await session.flush()
 
 
+def _pair(email: str, ip: str) -> str:
+    # Hashed: the bucket column is 255 characters and an email alone can be that long.
+    return hashlib.sha256(f"{email}\n{ip}".encode()).hexdigest()[:32]
+
+
 async def consume(session: AsyncSession, request: Request, purpose: str, email: str) -> None:
     ip = limit_address(request)
     device = _device(request)
-    await _hit(session, f"email:{purpose}:{email}", limit=EMAIL_LIMIT, window=EMAIL_WINDOW)
-    await _hit(session, f"email-day:{purpose}:{email}", limit=EMAIL_DAILY_LIMIT, window=EMAIL_DAILY_WINDOW)
+    pair = _pair(email, ip)
+    await _hit(session, f"email:{purpose}:{pair}", limit=EMAIL_LIMIT, window=EMAIL_WINDOW)
+    await _hit(session, f"email-day:{purpose}:{pair}", limit=EMAIL_DAILY_LIMIT, window=EMAIL_DAILY_WINDOW)
     await _hit(session, f"ip:{purpose}:{ip}", limit=CLIENT_LIMIT, window=CLIENT_WINDOW)
     await _hit(session, f"device:{purpose}:{device}", limit=CLIENT_LIMIT, window=CLIENT_WINDOW)
+    await _hit(
+        session,
+        f"email-all:{purpose}:{email}",
+        limit=EMAIL_DAILY_CEILING,
+        window=EMAIL_DAILY_WINDOW,
+        exempt=await known_address(request, email),
+    )
     await maybe_purge(session)
 
 

@@ -10,6 +10,15 @@ from app.core.enums import ActorType, AuditEvent
 from app.features.execution.activity.services.zero_access import CONTENT_KEYS, protect_mapping
 
 
+SOURCE_LENGTH = 64
+
+
+def source_of(payload: Any) -> str | None:
+    """The payload's "source", as stored in the indexed column."""
+    value = payload.get("source") if isinstance(payload, dict) else None
+    return value[:SOURCE_LENGTH] if isinstance(value, str) and value else None
+
+
 class AuditService:
     async def log(
         self,
@@ -50,6 +59,7 @@ class AuditService:
             tool=tool,
             result=result,
             payload=stored,
+            source=source_of(payload),
         )
         session.add(entry)
         await session.flush()
