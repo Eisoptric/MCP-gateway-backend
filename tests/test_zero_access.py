@@ -64,7 +64,9 @@ def test_payload_envelope_rejects_tampering():
     other, _public = generate_mlkem()
     with pytest.raises(Exception):
         decrypt_payload(other, "org_a", "evt_1", "audit", envelope)
-    broken = {**envelope, "ciphertext": ("00" + envelope["ciphertext"][2:])}
+    # Flip a bit, so the first byte always changes (setting it to 00 did nothing 1 run in 256).
+    first = int(envelope["ciphertext"][:2], 16) ^ 0x01
+    broken = {**envelope, "ciphertext": f"{first:02x}" + envelope["ciphertext"][2:]}
     with pytest.raises(Exception):
         decrypt_payload(private, "org_a", "evt_1", "audit", broken)
     with pytest.raises(Exception):
