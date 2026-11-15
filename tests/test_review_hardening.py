@@ -18,12 +18,12 @@ async def test_reset_codes_stop_after_the_daily_cap(client):
     override = await _session_factory()
     gen = override()
     session = await gen.__anext__()
-    # Ten earlier requests today, each outside the one-minute resend wait.
-    for index in range(10):
+    # Thirty earlier requests today from other addresses, each outside the one-minute resend wait.
+    for index in range(30):
         session.add(
             AuthThrottle(
                 id=f"thr_test_{index}",
-                bucket="email-day:reset:capped@saturn.ai",
+                bucket="email-all:reset:capped@saturn.ai",
                 created_at=utcnow() - timedelta(hours=1, minutes=index),
             )
         )

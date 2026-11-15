@@ -4,7 +4,7 @@ import base64
 import hashlib
 import hmac
 import secrets
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 from sqlalchemy import select, update
@@ -18,6 +18,9 @@ from app.features.identity.auth.services.auth_service import hash_token
 
 ACCESS_TTL = timedelta(hours=1)
 REFRESH_TTL = timedelta(days=30)
+# How long one sign-in lasts for an agent. Each refresh rotates the token and grants up to
+# REFRESH_TTL more, but never past this from the authorization the family started with.
+REFRESH_FAMILY_TTL = timedelta(days=90)
 CODE_TTL = timedelta(minutes=5)
 SCOPE = "saturn.mcp"
 
@@ -131,7 +134,14 @@ class OAuthService:
             select(OAuthGrant).where(OAuthGrant.code_hash == hash_token(code))
         )
         grant = result.scalar_one_or_none()
-        if grant is None or grant.used_at is not None or grant.client_id != client_id:
+        if grant is None:
+            return None
+        if grant.used_at is not None:
+            # The code was used before: whoever presents it now may have stolen it. End every
+            # token issued from it (RFC 6749 section 4.1.2).
+            await self._revoke_grant_tokens(session, grant.id)
+            return None
+        if grant.client_id != client_id:
             return None
         if grant.redirect_uri != redirect_uri or _aware(grant.expires_at) <= utcnow():
             return None
@@ -149,8 +159,16 @@ class OAuthService:
             .execution_options(synchronize_session=False)
         )
         if claimed.rowcount != 1:
+            # Another exchange of the same code won the race; this one is the replay.
+            await self._revoke_grant_tokens(session, grant.id)
             return None
-        return await self._issue_tokens(session, client_id=client_id, user_id=grant.user_id)
+        return await self._issue_tokens(
+            session,
+            client_id=client_id,
+            user_id=grant.user_id,
+            grant_id=grant.id,
+            family_started_at=utcnow(),
+        )
 
     async def refresh(
         self,
@@ -171,6 +189,9 @@ class OAuthService:
             return None
         if _aware(current.refresh_expires_at) <= utcnow():
             return None
+        started = _aware(current.family_started_at or current.created_at)
+        if started + REFRESH_FAMILY_TTL <= utcnow():
+            return None
         claimed = await session.execute(
             update(OAuthAccess)
             .where(OAuthAccess.id == current.id, OAuthAccess.revoked_at.is_(None))
@@ -179,7 +200,22 @@ class OAuthService:
         )
         if claimed.rowcount != 1:
             return None
-        return await self._issue_tokens(session, client_id=client_id, user_id=current.user_id)
+        return await self._issue_tokens(
+            session,
+            client_id=client_id,
+            user_id=current.user_id,
+            grant_id=current.grant_id,
+            family_started_at=started,
+        )
+
+    async def _revoke_grant_tokens(self, session: AsyncSession, grant_id: str) -> None:
+        await session.execute(
+            update(OAuthAccess)
+            .where(OAuthAccess.grant_id == grant_id, OAuthAccess.revoked_at.is_(None))
+            .values(revoked_at=utcnow())
+            .execution_options(synchronize_session=False)
+        )
+        await session.flush()
 
     async def _revoke_client_tokens(self, session: AsyncSession, *, user_id: str, client_id: str) -> None:
         await session.execute(
@@ -242,9 +278,14 @@ class OAuthService:
         *,
         client_id: str,
         user_id: str,
+        grant_id: str | None,
+        family_started_at: datetime,
     ) -> tuple[str, str, int]:
         access = "sat_oa_" + secrets.token_urlsafe(32)
         refresh = "sat_or_" + secrets.token_urlsafe(32)
+        now = utcnow()
+        family_ends = _aware(family_started_at) + REFRESH_FAMILY_TTL
+        expires_at = min(now + ACCESS_TTL, family_ends)
         session.add(
             OAuthAccess(
                 id=new_id("oat"),
@@ -252,12 +293,14 @@ class OAuthService:
                 refresh_hash=hash_token(refresh),
                 client_id=client_id,
                 user_id=user_id,
-                expires_at=utcnow() + ACCESS_TTL,
-                refresh_expires_at=utcnow() + REFRESH_TTL,
+                expires_at=expires_at,
+                refresh_expires_at=min(now + REFRESH_TTL, family_ends),
+                grant_id=grant_id,
+                family_started_at=family_started_at,
             )
         )
         await session.flush()
-        return access, refresh, int(ACCESS_TTL.total_seconds())
+        return access, refresh, max(0, int((expires_at - now).total_seconds()))
 
 
 oauth_service = OAuthService()

@@ -91,9 +91,13 @@ async def test_legacy_password_is_refused_after_the_deadline(client, monkeypatch
     # The raw legacy password in the ordinary password field must not get around the deadline.
     raw = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": "correct horse"})
     assert raw.status_code == 401
+    # The raw password proves the legacy hash, so only now may the answer say to reset.
     probe = await client.post("/auth/login/migration", json={"email": "rick@saturn.ai", "password": "correct horse"})
     assert probe.status_code == 200
-    assert probe.json() == {}
+    assert probe.json() == {"migration": "reset"}
+    # Without that proof the answer is the one any address gets after the deadline.
+    unproven = await client.post("/auth/login/migration", json={"email": "rick@saturn.ai", "password": "v2." + ("ab" * 32)})
+    assert unproven.json() == {"migration": None}
 
 
 async def test_migration_probe_is_limited_per_account(client):
@@ -101,15 +105,22 @@ async def test_migration_probe_is_limited_per_account(client):
     for n in range(12):
         response = await client.post(
             "/auth/login/migration",
-            headers={"X-Forwarded-For": f"10.2.0.{n}"},
+            headers={"X-Forwarded-For": "10.2.0.1"},
             json={"email": "rick@saturn.ai", "password": f"guess-{n}"},
         )
         statuses.append(response.status_code)
     assert statuses[:10] == [200] * 10
     assert statuses[10:] == [429, 429]
+    # Per account and address: another address keeps its own attempts.
+    other = await client.post(
+        "/auth/login/migration",
+        headers={"X-Forwarded-For": "10.2.0.2"},
+        json={"email": "rick@saturn.ai", "password": "guess"},
+    )
+    assert other.status_code == 200
 
 
-async def test_legacy_password_is_rewritten_as_argon2id(client):
+async def test_legacy_password_is_rewritten_as_argon2id(client, legacy_window):
     import hashlib
     import secrets
 
@@ -157,7 +168,7 @@ async def test_legacy_password_is_rewritten_as_argon2id(client):
         await session_gen.aclose()
 
 
-async def test_v1_verifier_migrates_without_the_raw_password(client):
+async def test_v1_verifier_migrates_without_the_raw_password(client, legacy_window):
     import hashlib
     import secrets
 
@@ -219,13 +230,13 @@ async def test_logout_revokes_session(client):
     assert denied.status_code == 401
 
 
-async def test_login_migration_hides_unknown_accounts_and_is_rate_limited(client, monkeypatch):
+async def test_login_migration_hides_unknown_accounts_and_is_rate_limited(client, legacy_window, monkeypatch):
     missing = await client.post(
         "/auth/login/migration",
         json={"email": "nobody@example.com", "password": "v2.00"},
     )
     assert missing.status_code == 200
-    assert missing.json() == {}
+    assert missing.json() == {"migration": "v1"}
 
     async def refuse(_request, _email=None):
         return False

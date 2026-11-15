@@ -124,48 +124,55 @@ def test_throttle_uses_the_same_client_ip_as_rate_limits(monkeypatch):
     assert throttle.client_ip(Request()) == "203.0.113.8"
 
 
-async def test_login_is_limited_per_account_across_addresses():
+class _Request:
+    def __init__(self, ip: str) -> None:
+        self.headers = {"x-forwarded-for": ip}
+        self.client = None
+
+
+async def test_wrong_passwords_are_limited_per_account_and_address():
     from app.core import rate_limit
 
-    class Request:
-        def __init__(self, ip: str) -> None:
-            self.headers = {"x-forwarded-for": ip}
-            self.client = None
-
-    results = []
-    for n in range(12):
-        # A wrong password: the slot login_allowed took is not given back.
-        results.append(await rate_limit.login_allowed(Request(f"10.0.0.{n}"), "victim@example.com"))
+    # A wrong password: the slots login_allowed took are not given back.
+    results = [await rate_limit.login_allowed(_Request("10.0.0.1"), "victim@example.com") for _ in range(12)]
     assert results[:10] == [True] * 10
     assert results[10:] == [False, False]
+    # Someone else's wrong guesses do not use up the owner's attempts.
+    assert await rate_limit.login_allowed(_Request("198.51.100.7"), "victim@example.com") is True
 
 
-async def test_a_burst_of_guesses_cannot_pass_the_account_limit():
+async def test_guesses_from_many_addresses_stop_at_the_account_ceiling_but_not_for_the_owner():
     from app.core import rate_limit
 
-    class Request:
-        def __init__(self, ip: str) -> None:
-            self.headers = {"x-forwarded-for": ip}
-            self.client = None
+    # The owner signed in from home last week.
+    home = _Request("198.51.100.20")
+    assert await rate_limit.login_allowed(home, "owner@example.com")
+    await rate_limit.login_succeeded(home, "owner@example.com")
 
-    # Thirty requests all checked before any password has been verified. Counting failures only
-    # afterwards let every one of them through.
-    in_flight = [await rate_limit.login_allowed(Request(f"10.1.0.{n}"), "burst@example.com") for n in range(30)]
-    assert in_flight.count(True) == rate_limit.LOGIN_ACCOUNT_FAILURES
+    # Checked before any password is verified, so a burst cannot pass the ceiling either.
+    spread = [await rate_limit.login_allowed(_Request(f"10.1.{n // 200}.{n % 200}"), "owner@example.com") for n in range(80)]
+    assert spread.count(True) == rate_limit.LOGIN_ACCOUNT_CEILING
+    assert await rate_limit.login_allowed(_Request("10.200.0.1"), "owner@example.com") is False
+    # The owner's own address still gets its per-address attempts.
+    assert await rate_limit.login_allowed(home, "owner@example.com") is True
+
+
+async def test_a_failure_that_is_not_a_wrong_password_does_not_make_an_address_known():
+    from app.core import rate_limit
+
+    elsewhere = _Request("203.0.113.40")
+    assert await rate_limit.login_allowed(elsewhere, "someone@example.com")
+    await rate_limit.login_succeeded(elsewhere, "someone@example.com", signed_in=False)
+    assert await rate_limit.known_address(elsewhere, "someone@example.com") is False
 
 
 async def test_successful_sign_ins_do_not_count_against_the_account():
     from app.core import rate_limit
 
-    class Request:
-        def __init__(self, ip: str) -> None:
-            self.headers = {"x-forwarded-for": ip}
-            self.client = None
-
-    # Fifteen good sign-ins from different addresses, none of them failures.
-    for n in range(15):
-        assert await rate_limit.login_allowed(Request(f"10.3.0.{n}"), "busy@example.com")
-        await rate_limit.login_succeeded("busy@example.com")
+    # Fifteen good sign-ins from one address, none of them failures.
+    for _ in range(15):
+        assert await rate_limit.login_allowed(_Request("10.3.0.1"), "busy@example.com")
+        await rate_limit.login_succeeded(_Request("10.3.0.1"), "busy@example.com")
 
 
 async def test_ipv6_addresses_are_counted_per_64(monkeypatch):

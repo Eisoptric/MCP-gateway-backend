@@ -55,10 +55,11 @@ from app.features.organization.org.services.access import allows, empty_permissi
 from app.features.organization.org.services.organization_service import serialize_organization
 from app.features.platform.admin.services.admin_service import admin_service
 from app.features.identity.auth.services.auth_service import (
-    _pbkdf2_ok,
+    _DUMMY_HASH,
     auth_service,
+    check_sign_in,
     hash_token,
-    migration_stage,
+    sign_in_hint,
     verify_password,
 )
 from app.features.identity.auth.services.mfa import mfa_service
@@ -282,6 +283,12 @@ async def register(body: RegisterRequest, request: Request, response: Response, 
 
 @router.post("/login/migration")
 async def login_migration(body: LoginRequest, request: Request, session: SessionDep):
+    """What the OAuth sign-in page must add to its form before posting it.
+
+    The answer is {"migration": null} when the proofs sent already sign in, and the same hint for
+    every other case, whether the address is unknown, current or legacy. The page then sends the
+    legacy proofs, and only /oauth/login, after checking them, can tell a legacy account apart.
+    """
     if not await migration_allowed(request, body.email):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
@@ -290,26 +297,24 @@ async def login_migration(body: LoginRequest, request: Request, session: Session
         )
     normalized = body.email.strip().lower()
     user = await session.scalar(select(User).where(User.email == normalized))
-    if user is None or user.status != "active":
-        from app.features.identity.auth.services.auth_service import _DUMMY_HASH
+    active = user is not None and user.status == "active"
+    stored = user.password_hash if user is not None else _DUMMY_HASH
+    modern, legacy = await in_thread(
+        check_sign_in,
+        stored,
+        body.password,
+        legacy_v1=body.legacy_v1,
+        legacy_password=body.legacy_password,
+    )
+    from app.features.identity.auth.services import auth_service as auth_module
 
-        await in_thread(verify_password, body.password, _DUMMY_HASH)
-        return {}
-    stored = user.password_hash
-    if await in_thread(verify_password, body.password, stored):
-        return {}
-    if body.legacy_v1 and await in_thread(verify_password, body.legacy_v1, stored):
-        return {}
-    from app.features.identity.auth.services.auth_service import legacy_password_allowed
-
-    if body.legacy_password and await in_thread(_pbkdf2_ok, body.legacy_password, stored):
-        if not legacy_password_allowed():
-            return {"migration": "reset"}
-        return {}
-    stage = migration_stage(stored, legacy_v1=body.legacy_v1, legacy_password=body.legacy_password)
-    if stage:
-        return {"migration": stage}
-    return {}
+    allowed = auth_module.legacy_password_allowed()
+    if active and legacy and not allowed:
+        # Only a caller who proved the legacy password learns it must reset.
+        return {"migration": "reset"}
+    if active and (modern or legacy):
+        return {"migration": None}
+    return {"migration": sign_in_hint(legacy_v1=body.legacy_v1, legacy_password=body.legacy_password)}
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -331,9 +336,9 @@ async def login(body: LoginRequest, request: Request, response: Response, sessio
     except HTTPException as exc:
         if exc.status_code != status.HTTP_401_UNAUTHORIZED:
             # Not a wrong password, so it does not count against the account.
-            await login_succeeded(body.email)
+            await login_succeeded(request, body.email, signed_in=False)
         raise
-    await login_succeeded(body.email)
+    await login_succeeded(request, body.email)
     pending = await _begin_mfa(session, user, body.locale)
     if pending is not None:
         return pending
@@ -546,16 +551,50 @@ async def reauthenticate(
     token = _presented_token(request, creds)
     if not await reauth_allowed(user.id):
         raise _too_many("900")
-    if body.password:
-        if not await in_thread(verify_password, body.password, user.password_hash):
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Current password is incorrect")
-    elif body.code:
-        await mfa_service.consume_reauth_code(session, user, body.code)
-    elif body.credential:
+    if body.credential:
+        # A passkey is a strong factor on its own, as it is when it finishes a sign-in.
         await passkey_service.reauth_verify(session, request, user, body.credential)
+    elif body.password or body.code:
+        # Step-up asks for the same second factor as sign-in. With the password alone, a stolen
+        # session plus a phished password could enrol the attacker's own passkey.
+        factor = await _step_up_factor(session, user)
+        if factor == "passkey":
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                {"message": "Confirm with your passkey", "second_factor": "passkey"},
+            )
+        if factor == "totp" and not (body.totp_code or "").strip():
+            # 403, not 401: the console treats a 401 as a signed-out session.
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                {"message": "Enter the code from your authenticator app", "second_factor": "totp"},
+            )
+        if body.password:
+            if not await in_thread(verify_password, body.password, user.password_hash):
+                raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Current password is incorrect")
+        else:
+            await mfa_service.consume_reauth_code(session, user, body.code or "")
+        if factor == "totp":
+            from app.features.identity.auth.services.totp import verify_user_totp
+
+            await _require_code_check(request, user.id)
+            await verify_user_totp(session, user, body.totp_code or "")
     else:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reauthentication required")
     await auth_service.mark_session_authenticated(session, token)
+
+
+async def _step_up_factor(session, user: User) -> str | None:
+    """The second factor step-up needs besides the password or emailed code, if any.
+
+    An authenticator app is asked for directly. An account whose only strong factor is a passkey
+    confirms with the passkey itself.
+    """
+    if user.totp_enabled and user.totp_secret:
+        return "totp"
+    if await mfa_service.has_strong_factor(session, user):
+        return "passkey"
+    return None
 
 
 @router.post("/reauth/email/code", status_code=204)
