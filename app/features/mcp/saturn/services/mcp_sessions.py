@@ -31,6 +31,7 @@ class McpSession:
     user_id: str
     agent_id: str
     client_id: str
+    # Where notices go: the queue of the newest event stream (see listen).
     queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=MAX_QUEUED_NOTICES))
     touched: float = field(default_factory=time.monotonic)
     # Counts event streams opened on this record, so only the newest one may detach it.
@@ -171,13 +172,22 @@ class McpSessionHub:
         await self._redis.delete(f"saturn:mcp:session:{session_id}")
         await self._redis.publish(CHANNEL, json.dumps({"kind": "close", "session_id": session_id}))
 
-    def listen(self, record: McpSession) -> int:
-        """An event stream starts reading this record. Returns the token its detach must pass.
+    def listen(self, record: McpSession) -> tuple[int, asyncio.Queue]:
+        """An event stream starts reading this record. Returns the token its detach must pass
+        and the queue the stream reads.
 
         Call it right after get(), with no await in between, so a detach cannot slip in.
         """
         record.streams += 1
-        return record.streams
+        # A client that reconnected leaves its old stream open until the server notices it is
+        # gone. With one shared queue that stream could take a notice meant for the new one, so
+        # the newest stream gets a queue of its own and the old one is left reading an orphan.
+        previous = record.queue
+        record.queue = asyncio.Queue(maxsize=MAX_QUEUED_NOTICES)
+        # Notices nobody has read yet still concern this client: they move to the new stream.
+        while not previous.empty():
+            record.queue.put_nowait(previous.get_nowait())
+        return record.streams, record.queue
 
     async def detach(self, record: McpSession, stream: int) -> None:
         """The event stream ended; the session itself goes on.

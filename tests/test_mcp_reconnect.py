@@ -228,9 +228,9 @@ async def test_an_old_stream_ending_does_not_detach_the_new_one():
 
     # The client reconnects on this instance before the old stream's cleanup has run.
     old = await hub.get("s1", "user_1", "client_1")
-    old_stream = hub.listen(old)
+    old_stream, _old_queue = hub.listen(old)
     new = await hub.get("s1", "user_1", "client_1")
-    new_stream = hub.listen(new)
+    new_stream, _new_queue = hub.listen(new)
     await hub.detach(old, old_stream)
 
     await hub.notify(["agent_1"])
@@ -251,5 +251,56 @@ async def test_without_redis_a_finished_stream_keeps_the_session():
 
     hub = McpSessionHub()
     record = await hub.open("s1", "user_1", "agent_1", "client_1")
-    await hub.detach(record, hub.listen(record))
+    token, _queue = hub.listen(record)
+    await hub.detach(record, token)
     assert await hub.get("s1", "user_1", "client_1") is record
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redis", [False, True], ids=["in-memory", "redis"])
+async def test_a_notice_reaches_only_the_newest_stream(redis):
+    import asyncio
+
+    from app.features.mcp.saturn.services.mcp_sessions import LIST_CHANGED, McpSessionHub
+
+    hub = McpSessionHub()
+    if redis:
+        hub._redis = _SharedRedis(hub)
+    assert await hub.open("s1", "user_1", "agent_1", "client_1") is not None
+
+    # Stream A is still open, unaware its client left, when the client's new stream B starts.
+    record_a = await hub.get("s1", "user_1", "client_1")
+    token_a, queue_a = hub.listen(record_a)
+    record_b = await hub.get("s1", "user_1", "client_1")
+    token_b, queue_b = hub.listen(record_b)
+    assert queue_a is not queue_b
+
+    # A is already waiting, so with one shared queue it would have been handed the notice.
+    waiting = asyncio.create_task(queue_a.get())
+    await asyncio.sleep(0)
+    await hub.notify(["agent_1"])
+    await asyncio.sleep(0)
+    assert queue_b.get_nowait() == LIST_CHANGED
+    assert not waiting.done() and queue_a.empty()
+
+    # A finishing changes nothing for B.
+    waiting.cancel()
+    await hub.detach(record_a, token_a)
+    await hub.notify(["agent_1"])
+    assert queue_b.get_nowait() == LIST_CHANGED
+    assert queue_a.empty()
+    await hub.detach(record_b, token_b)
+
+
+@pytest.mark.asyncio
+async def test_a_notice_sent_before_a_reconnect_reaches_the_new_stream():
+    from app.features.mcp.saturn.services.mcp_sessions import LIST_CHANGED, McpSessionHub
+
+    hub = McpSessionHub()
+    record = await hub.open("s1", "user_1", "agent_1", "client_1")
+    _token, old_queue = hub.listen(record)
+    await hub.notify(["agent_1"])
+    _token, new_queue = hub.listen(record)
+    assert new_queue.get_nowait() == LIST_CHANGED
+    assert old_queue.empty()
+
