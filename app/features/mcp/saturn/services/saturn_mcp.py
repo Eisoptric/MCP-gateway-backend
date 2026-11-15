@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -328,18 +329,9 @@ class SaturnMcp:
             refused = await self._over_agent_limit(session, user, client_id)
             if refused:
                 return refused
-            ident = self._stable_id(profile_id, user.id, name)
-            if await session.get(Agent, ident) is not None:
-                ident = self._legacy_id(profile_id, name, client_id)
-            agent = Agent(
-                id=ident,
-                organization_id=user.organization_id,
-                name=name,
-                description="",
-                model="",
-                settings={"created_client_id": client_id},
-            )
-            session.add(agent)
+            agent = await self._new_client_agent(session, user, profile_id, name, client_id)
+            if agent is None:
+                return ""
         settings = dict(agent.settings or {})
         current_profile = str(settings.get("profile_id") or "")
         current_user = str(settings.get("registered_user_id") or "")
@@ -357,6 +349,60 @@ class SaturnMcp:
         agent.last_seen_at = utcnow()
         await session.flush()
         return ""
+
+    async def _new_client_agent(
+        self,
+        session: AsyncSession,
+        user: User,
+        profile_id: str,
+        name: str,
+        client_id: str,
+    ) -> Agent | None:
+        """Insert this client's agent, or take the one a concurrent initialize just inserted.
+
+        A client can send two initialize requests at once. Both find no agent and both pick the
+        same id, so the second insert must not turn into a 500. None means no usable agent.
+        """
+        for ident in (self._stable_id(profile_id, user.id, name), self._legacy_id(profile_id, name, client_id)):
+            taken = await session.get(Agent, ident)
+            if taken is None:
+                return await self._insert_client_agent(session, user, ident, name, client_id)
+            # The other request may have committed after our lookup; its agent is ours to use.
+            if self._owns(taken, user, client_id):
+                return taken
+            # Another client of this user holds the stable id; the legacy id includes the client.
+        return None
+
+    async def _insert_client_agent(
+        self,
+        session: AsyncSession,
+        user: User,
+        ident: str,
+        name: str,
+        client_id: str,
+    ) -> Agent | None:
+        agent = Agent(
+            id=ident,
+            organization_id=user.organization_id,
+            name=name,
+            description="",
+            model="",
+            settings={"created_client_id": client_id},
+        )
+        try:
+            # A savepoint, so losing the race leaves the rest of this request's transaction intact.
+            async with session.begin_nested():
+                session.add(agent)
+                await session.flush()
+        except IntegrityError:
+            # The other initialize inserted this id first. The ownership check still decides
+            # whether this client may use it.
+            winner = await session.get(Agent, ident, populate_existing=True)
+            if winner is None:
+                # No row with this id, so the failure was not the race. Let it surface.
+                raise
+            return winner if self._owns(winner, user, client_id) else None
+        return agent
 
     async def _over_agent_limit(self, session: AsyncSession, user: User, client_id: str) -> str:
         result = await session.execute(select(Agent).where(Agent.organization_id == user.organization_id))
