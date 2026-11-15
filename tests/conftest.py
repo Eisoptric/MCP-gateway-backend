@@ -45,8 +45,10 @@ def fresh_mcp_clients():
     from app.features.mcp.servers.services import mcp_remote
 
     mcp_remote._clients.clear()
+    mcp_remote._sessions.clear()
     yield
     mcp_remote._clients.clear()
+    mcp_remote._sessions.clear()
 
 
 @pytest.fixture(autouse=True)
