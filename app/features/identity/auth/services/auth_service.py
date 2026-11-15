@@ -32,6 +32,11 @@ OAUTH_SESSION_TTL = timedelta(minutes=15)
 IDLE_TIMEOUT = timedelta(hours=24)
 # last_seen_at is written at most this often, so most requests do not write the row.
 SEEN_EVERY = timedelta(minutes=5)
+# Guesses one reset code takes from every address together before it dies. Each address has its
+# own small budget (rate_limit.reset_code_allowed), so a stranger cannot burn the owner's code
+# with a handful of wrong guesses. A code is one of 10^6, so this ceiling leaves a guesser at
+# most 50 / 10^6 = 0.005% per code.
+RESET_CODE_CEILING = 50
 
 
 def login_secret(password: str) -> str:
@@ -394,13 +399,13 @@ class AuthService:
         expires = record.expires_at if record is not None else None
         if expires is not None and expires.tzinfo is None:
             expires = expires.replace(tzinfo=timezone.utc)
-        if record is None or expires is None or expires <= now or record.attempts >= 5:
+        if record is None or expires is None or expires <= now or record.attempts >= RESET_CODE_CEILING:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Verification code is incorrect or expired")
         from app.features.identity.auth.services.attempts import reserve_attempt
 
-        used = await reserve_attempt(session, record, "attempts", 5)
+        used = await reserve_attempt(session, record, "attempts", RESET_CODE_CEILING)
         if used is None or not await in_thread(verify_password, code.strip(), record.code_hash):
-            if used is None or used >= 5:
+            if used is None or used >= RESET_CODE_CEILING:
                 record.used_at = now
             await session.flush()
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Verification code is incorrect or expired")

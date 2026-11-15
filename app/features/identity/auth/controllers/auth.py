@@ -16,6 +16,8 @@ from app.core.rate_limit import (
     login_succeeded,
     migration_allowed,
     reauth_allowed,
+    reset_code_allowed,
+    reset_code_succeeded,
     signup_allowed,
 )
 from app.features.identity.auth.controllers.deps import CurrentUser, SessionDep, require_same_origin
@@ -569,10 +571,27 @@ async def reauthenticate(
                 status.HTTP_403_FORBIDDEN,
                 {"message": "Enter the code from your authenticator app", "second_factor": "totp"},
             )
+        if factor == "email" and not body.password:
+            # The emailed code is this account's second factor, so it cannot stand in for the
+            # password. Refused before the code is checked, so it still works with the password.
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                {"message": "Enter your password as well as the emailed code", "second_factor": "email"},
+            )
         if body.password:
             if not await in_thread(verify_password, body.password, user.password_hash):
                 raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Current password is incorrect")
         else:
+            await mfa_service.consume_reauth_code(session, user, body.code or "")
+        if factor == "email":
+            if not (body.code or "").strip():
+                # As at sign-in, the code is sent once the password is right.
+                await _send_step_up_code(session, user)
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN,
+                    {"message": "Enter the code we emailed you", "second_factor": "email"},
+                )
+            await _require_code_check(request, user.id)
             await mfa_service.consume_reauth_code(session, user, body.code or "")
         if factor == "totp":
             from app.features.identity.auth.services.totp import verify_user_totp
@@ -588,13 +607,32 @@ async def _step_up_factor(session, user: User) -> str | None:
     """The second factor step-up needs besides the password or emailed code, if any.
 
     An authenticator app is asked for directly. An account whose only strong factor is a passkey
-    confirms with the passkey itself.
+    confirms with the passkey itself. An account that signs in with an emailed code gives the
+    password and that code, as it does at sign-in.
     """
     if user.totp_enabled and user.totp_secret:
         return "totp"
     if await mfa_service.has_strong_factor(session, user):
         return "passkey"
+    if user.email_mfa:
+        return "email"
     return None
+
+
+async def _send_step_up_code(session, user: User) -> None:
+    try:
+        code = await mfa_service.request_reauth_code(session, user)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+            # One was sent within the last minute. Still answer with the factor, not a 429, so
+            # the form shows where to enter that code.
+            return
+        raise
+    try:
+        await send_reauth_code(user.email, code, user.locale)
+    except HTTPException:
+        await mfa_service.discard_reauth_code(session, user)
+        raise
 
 
 @router.post("/reauth/email/code", status_code=204)
@@ -751,8 +789,12 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request, session
 
 @router.post("/reset-password", status_code=204)
 async def reset_password(body: ResetPasswordRequest, request: Request, session: SessionDep):
-    await _require_code_check(request, body.email)
+    # Counted per (account, address), not per account: anyone can post an email here, and a
+    # per-account budget let a stranger lock the owner out of their own reset.
+    if not await reset_code_allowed(request, body.email):
+        raise _too_many()
     await auth_service.reset_password(session, body.email, body.code, body.password)
+    await reset_code_succeeded(request, body.email)
 
 
 @router.patch("/password", status_code=204)

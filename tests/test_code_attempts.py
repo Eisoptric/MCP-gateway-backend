@@ -7,7 +7,7 @@ from sqlalchemy import update
 from app.core.ids import new_id, utcnow
 from app.db.database import get_session
 from app.features.identity.auth.services.attempts import reserve_attempt
-from app.features.identity.auth.services.auth_service import hash_password
+from app.features.identity.auth.services.auth_service import RESET_CODE_CEILING, hash_password
 from app.main import app
 from app.models import PasswordReset
 
@@ -48,7 +48,9 @@ async def test_reset_code_is_refused_once_the_cap_is_spent_behind_its_back(clien
     generator, session = await _db()
     try:
         await session.execute(
-            update(PasswordReset).where(PasswordReset.email == "rick@saturn.ai").values(attempts=5)
+            update(PasswordReset)
+            .where(PasswordReset.email == "rick@saturn.ai")
+            .values(attempts=RESET_CODE_CEILING)
         )
         await session.commit()
     finally:
@@ -68,7 +70,9 @@ async def test_code_checks_are_limited_per_address(client):
     assert statuses[-1] == 429
 
 
-async def test_reset_attempts_are_limited_per_account(client):
+async def test_reset_attempts_are_limited_per_account(client, monkeypatch):
+    # Spread over many addresses, wrong guesses still meet the account's daily ceiling.
+    monkeypatch.setattr("app.core.rate_limit.RESET_CODE_ACCOUNT_CEILING", 15)
     statuses = []
     for n in range(17):
         response = await client.post(
