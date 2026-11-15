@@ -10,7 +10,11 @@ from app.db.database import Base
 
 
 class McpOAuthPending(Base):
-    """A marketplace sign-in waiting for the MCP provider to redirect back."""
+    """A marketplace sign-in waiting for the MCP provider to redirect back.
+
+    The row outlives the callback so the console that started the sign-in can read how it ended
+    (by its nonce). Once finished, the verifier and client secret are cleared.
+    """
 
     __tablename__ = "mcp_oauth_pending"
 
@@ -31,4 +35,10 @@ class McpOAuthPending(Base):
     scope: Mapped[str] = mapped_column(Text, default="", nullable=False)
     redirect_uri: Mapped[str] = mapped_column(Text, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # pending -> claimed (callback is exchanging the code) -> connected | failed.
+    status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending", nullable=False)
+    # A short code and console-safe sentence when it failed. Never a token or provider secret.
+    reason: Mapped[str] = mapped_column(String(32), default="", server_default="", nullable=False)
+    message: Mapped[str] = mapped_column(String(255), default="", server_default="", nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
