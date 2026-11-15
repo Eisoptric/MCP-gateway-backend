@@ -512,6 +512,17 @@ async def test_a_400_naming_the_session_is_treated_like_404(monkeypatch):
         await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
     assert upstream.methods() == ["tools/call"]
 
+    # A 400 that echoes the request's id was read, and maybe acted on, even if it talks about a
+    # session (a booking tool's "session expired", say). It is never resent.
+    upstream.seen.clear()
+    upstream.on_call = lambda request: httpx.Response(
+        400,
+        json={"jsonrpc": "2.0", "id": __import__("json").loads(request.content)["id"], "error": {"code": -32000, "message": "Session expired"}},
+    )
+    with pytest.raises(HTTPException):
+        await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "token")
+    assert upstream.methods().count("tools/call") == 1
+
 
 @pytest.mark.asyncio
 async def test_a_tool_call_timeout_on_a_kept_session_is_uncertain_and_never_resent(monkeypatch):

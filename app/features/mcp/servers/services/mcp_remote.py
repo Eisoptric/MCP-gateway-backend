@@ -206,7 +206,11 @@ _STALE = (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError, httpx.Cl
 # connection whose certificate was checked for another name on the same address. The names come
 # from ALLOWED_MCP_HOSTS, which bounds how many clients exist.
 _clients: dict[str, httpx.AsyncClient] = {}
-_LIMITS = httpx.Limits(max_connections=50, max_keepalive_connections=10, keepalive_expiry=30)
+# A kept session's tools/call can be the first request on a reused connection, and a failure
+# there is uncertain, never resent. Node's HTTP server, which the TypeScript MCP SDK runs on,
+# closes idle connections after 5 s by default, so a connection is never kept idle that long:
+# a call should not race the server closing the socket it is written to.
+_LIMITS = httpx.Limits(max_connections=50, max_keepalive_connections=10, keepalive_expiry=4)
 
 
 def _no_cookies() -> CookieJar:
@@ -375,13 +379,19 @@ def _session_gone(response: httpx.Response) -> bool:
     """Whether the server says the session id it was sent is unknown or expired."""
     if response.status_code == 404:
         return True
-    if response.status_code == 400:
-        try:
-            text = response.text[:2000]
-        except ValueError:
-            return False
-        return bool(_MISSING_SESSION.search(text))
-    return False
+    if response.status_code != 400:
+        return False
+    # A 400 counts only as the SDKs send it: a JSON-RPC error with no id, because the request was
+    # refused before it was read, and a message about the session. A 400 that echoes the
+    # request's id was read, and maybe acted on, so it never leads to a resend.
+    try:
+        body = json.loads(response.content[:65536])
+    except ValueError:
+        return False
+    error = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error, dict) or body.get("id") is not None:
+        return False
+    return bool(_MISSING_SESSION.search(str(error.get("message") or "")))
 
 
 async def _initialize(
@@ -422,6 +432,9 @@ async def _send_in(
     timeout: float,  # noqa: ASYNC109
 ) -> httpx.Response:
     headers = {**_headers(header_auth, session.session_id), "Host": host}
+    if session.protocol_version:
+        # Required on every request after initialize from protocol revision 2025-06-18.
+        headers["MCP-Protocol-Version"] = session.protocol_version
     # A copy, so concurrent calls in one session never write to each other's jar.
     cookies = httpx.Cookies(session.cookies)
     return await _rpc(client, request_url, headers, method, params, next(_request_ids), host, cookies=cookies, timeout=timeout)
