@@ -146,3 +146,44 @@ async def test_another_app_with_the_same_name_gets_its_own_empty_agent(
         json={"jsonrpc": "2.0", "id": 4, "method": "tools/list"},
     )
     assert [tool["name"] for tool in still.json()["result"]["tools"]] == ["crm.get_customer"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "step",
+    # Before the existing-id check, and between that check and the insert.
+    ["_over_agent_limit", "_insert_client_agent"],
+)
+async def test_two_initializes_at_once_share_one_agent(client, monkeypatch, step):
+    from app.features.mcp.saturn.services.saturn_mcp import SaturnMcp
+
+    access, _refresh, client_id = await oauth_tokens(client, "Claude")
+    initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "Claude"}}}
+    headers = {"Authorization": f"Bearer {access}"}
+    real = getattr(SaturnMcp, step)
+    inner: list = []
+
+    async def raced(self, *args):
+        if not inner:
+            inner.append(None)
+            # The second initialize runs to completion in its own session after this one found
+            # no agent: the order production saw.
+            inner[0] = await client.post("/mcp", headers=headers, json=initialize)
+        return await real(self, *args)
+
+    monkeypatch.setattr(SaturnMcp, step, raced)
+    outer = await client.post("/mcp", headers=headers, json=initialize)
+
+    assert inner[0].status_code == 200, inner[0].text
+    assert outer.status_code == 200, outer.text
+    assert "result" in outer.json() and outer.headers["mcp-session-id"]
+    agents = _claude((await client.get("/agents")).json())
+    assert len(agents) == 1
+    assert agents[0]["client_id"] == client_id
+    # The request that lost the race is bound to the winner's agent rather than to none.
+    from app.features.mcp.saturn.services.mcp_sessions import mcp_sessions
+
+    me = (await client.get("/auth/me")).json()["id"]
+    record = await mcp_sessions.get(outer.headers["mcp-session-id"], me, client_id)
+    assert record is not None and record.agent_id == agents[0]["id"]
+
