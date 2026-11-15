@@ -5,11 +5,12 @@ from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import Response
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, tuple_
 
 from app.core.ids import utcnow
 from app.features.identity.auth.controllers.deps import AgentsRead, CurrentUser, SessionDep, TeamRead
 from app.features.organization.org.services.plans import audit_retention_days
+from app.features.execution.activity.services.activity_cursor import decode_cursor, encode_cursor
 from app.features.execution.activity.services.audit_service import audit_service
 from app.features.execution.activity.services.zero_access import public_audit_payload
 from app.core.enums import ActorType, AuditEvent
@@ -18,10 +19,12 @@ from app.schemas import ActivityEventRead
 
 router = APIRouter(prefix="/activity", tags=["activity"])
 
+SATURN_MCP_SOURCE = "saturn_mcp"
+
 
 def recorded_by_saturn_mcp(entry: AuditLog) -> bool:
     payload = entry.payload if isinstance(entry.payload, dict) else {}
-    return payload.get("source") == "saturn_mcp"
+    return payload.get("source") == SATURN_MCP_SOURCE
 
 
 def _read(item: AuditLog) -> ActivityEventRead:
@@ -50,6 +53,30 @@ def _contains(column, needle: str):
     return func.lower(func.coalesce(column, "")).contains(needle.lower(), autoescape=True)
 
 
+# Accepted for one more release so clients still sending ?offset= keep working; use ?cursor=.
+OFFSET_PARAM = Query(0, ge=0, deprecated=True, description="Deprecated: use cursor.")
+CURSOR_PARAM = Query(None, description="next_cursor from the X-Next-Cursor header of the previous page.")
+
+
+def _page(stmt, cursor: str | None, offset: int, limit: int):
+    """Newest first. With a cursor, only rows strictly after it in (created_at, id) order."""
+    if cursor is not None:
+        if offset:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Use cursor or offset, not both")
+        created_at, row_id = decode_cursor(cursor)
+        # A row-value comparison, which PostgreSQL matches against the index's trailing columns.
+        stmt = stmt.where(tuple_(AuditLog.created_at, AuditLog.id) < tuple_(created_at, row_id))
+    stmt = stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+    if offset:
+        stmt = stmt.offset(offset)
+    return stmt.limit(limit + 1)
+
+
+async def _fetch(session, stmt, cursor: str | None, offset: int, limit: int) -> tuple[list[AuditLog], bool]:
+    rows = list((await session.execute(_page(stmt, cursor, offset, limit))).scalars().all())
+    return rows[:limit], len(rows) > limit
+
+
 async def _rows(
     session,
     user,
@@ -60,6 +87,7 @@ async def _rows(
     agent: str | None,
     limit: int,
     offset: int,
+    cursor: str | None,
 ) -> tuple[list[AuditLog], bool]:
     """Matching rows newest first, filtered in SQL. Returns one page and whether more exist."""
     org = await session.get(Organization, user.organization_id)
@@ -67,7 +95,7 @@ async def _rows(
     days = audit_retention_days(plan)
     stmt = select(AuditLog).where(
         AuditLog.organization_id == user.organization_id,
-        AuditLog.payload["source"].as_string() == "saturn_mcp",
+        AuditLog.source == SATURN_MCP_SOURCE,
     )
     if run_id:
         stmt = stmt.where(AuditLog.run_id == run_id)
@@ -87,14 +115,16 @@ async def _rows(
                 )
             )
         )
-    stmt = stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset(offset).limit(limit + 1)
-    rows = list((await session.execute(stmt)).scalars().all())
-    return rows[:limit], len(rows) > limit
+    return await _fetch(session, stmt, cursor, offset, limit)
 
 
-def _page_headers(response: Response, offset: int, count: int, more: bool) -> None:
-    if more:
-        response.headers["X-Next-Offset"] = str(offset + count)
+def _page_headers(response: Response, rows: list[AuditLog], more: bool, *, offset: int, cursor: str | None) -> None:
+    if not more:
+        return
+    last = rows[-1]
+    response.headers["X-Next-Cursor"] = encode_cursor(last.created_at, last.id)
+    if cursor is None:
+        response.headers["X-Next-Offset"] = str(offset + len(rows))
 
 
 @router.get("", response_model=list[ActivityEventRead])
@@ -108,10 +138,13 @@ async def list_activity(
     tool: str | None = None,
     agent: str | None = None,
     limit: int = Query(LIST_DEFAULT_LIMIT, ge=1, le=LIST_MAX_LIMIT),
-    offset: int = Query(0, ge=0),
+    cursor: str | None = CURSOR_PARAM,
+    offset: int = OFFSET_PARAM,
 ):
-    rows, more = await _rows(session, user, run_id=run_id, q=q, tool=tool, agent=agent, limit=limit, offset=offset)
-    _page_headers(response, offset, len(rows), more)
+    rows, more = await _rows(
+        session, user, run_id=run_id, q=q, tool=tool, agent=agent, limit=limit, offset=offset, cursor=cursor
+    )
+    _page_headers(response, rows, more, offset=offset, cursor=cursor)
     return [_read(item) for item in rows]
 
 
@@ -147,7 +180,8 @@ async def list_changes(
     _access: TeamRead,
     response: Response,
     limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    cursor: str | None = CURSOR_PARAM,
+    offset: int = OFFSET_PARAM,
 ):
     """Who changed a policy, a tool set, a member's access, or removed an agent or server."""
     org = await session.get(Organization, user.organization_id)
@@ -158,10 +192,9 @@ async def list_changes(
     )
     if days is not None:
         stmt = stmt.where(AuditLog.created_at >= utcnow() - timedelta(days=days))
-    stmt = stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset(offset).limit(limit + 1)
-    rows = list((await session.execute(stmt)).scalars().all())
-    _page_headers(response, offset, len(rows[:limit]), len(rows) > limit)
-    return [_read(item) for item in rows[:limit]]
+    rows, more = await _fetch(session, stmt, cursor, offset, limit)
+    _page_headers(response, rows, more, offset=offset, cursor=cursor)
+    return [_read(item) for item in rows]
 
 
 @router.get("/export")
@@ -174,9 +207,12 @@ async def export_activity(
     tool: str | None = None,
     agent: str | None = None,
     limit: int = Query(EXPORT_DEFAULT_LIMIT, ge=1, le=EXPORT_MAX_LIMIT),
-    offset: int = Query(0, ge=0),
+    cursor: str | None = CURSOR_PARAM,
+    offset: int = OFFSET_PARAM,
 ):
-    rows, more = await _rows(session, user, run_id=run_id, q=q, tool=tool, agent=agent, limit=limit, offset=offset)
+    rows, more = await _rows(
+        session, user, run_id=run_id, q=q, tool=tool, agent=agent, limit=limit, offset=offset, cursor=cursor
+    )
     body = json.dumps(
         [_read(item).model_dump(mode="json") for item in rows],
         ensure_ascii=False,
@@ -186,7 +222,7 @@ async def export_activity(
         media_type="application/json",
         headers={"Content-Disposition": 'attachment; filename="activity.json"'},
     )
-    _page_headers(response, offset, len(rows), more)
+    _page_headers(response, rows, more, offset=offset, cursor=cursor)
     return response
 
 
