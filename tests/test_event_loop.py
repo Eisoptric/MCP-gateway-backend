@@ -145,13 +145,13 @@ async def test_password_hashing_runs_in_a_worker_thread(client, monkeypatch):
     from app.features.identity.auth.services import auth_service
 
     seen = []
-    real = auth_service.verify_password
+    real = auth_service.check_sign_in
 
-    def verify(password, stored):
+    def verify(*args, **kwargs):
         seen.append(threading.get_ident())
-        return real(password, stored)
+        return real(*args, **kwargs)
 
-    monkeypatch.setattr(auth_service, "verify_password", verify)
+    monkeypatch.setattr(auth_service, "check_sign_in", verify)
     wrong = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": "not it"})
     assert wrong.status_code == 401
     right = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": "saturn"})

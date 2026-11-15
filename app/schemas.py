@@ -721,6 +721,9 @@ class ReauthRequest(BaseModel):
     password: str | None = Field(default=None, max_length=PASSWORD_LEN)
     code: str | None = Field(default=None, max_length=CODE_LEN)
     credential: MediumDict | None = None
+    # The authenticator-app code (or a backup code), required with the password or the emailed
+    # code when the account has an authenticator app.
+    totp_code: str | None = Field(default=None, max_length=CODE_LEN)
 
 
 class MemberBackup(BaseModel):

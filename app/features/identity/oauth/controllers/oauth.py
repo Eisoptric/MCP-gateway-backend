@@ -463,20 +463,18 @@ async def authorize(request: Request, session: SessionDep):
                   form.dataset.busy = '0';
                   return;
                 }}
-                const probe = async (extra) => {{
-                  const response = await fetch('/auth/login/migration', {{
-                    method: 'POST',
-                    headers: {{'content-type': 'application/json'}},
-                    body: JSON.stringify({{email, password: verifier, ...extra}}),
-                  }});
-                  return response.ok ? response.json() : {{}};
-                }};
-                let body = await probe({{}});
-                if (body.migration === 'v1' && verifier !== v1) {{
+                const response = await fetch('/auth/login/migration', {{
+                  method: 'POST',
+                  headers: {{'content-type': 'application/json'}},
+                  body: JSON.stringify({{email, password: verifier}}),
+                }});
+                const body = response.ok ? await response.json() : {{}};
+                // Every address gets this hint when the verifier did not sign in, so it says
+                // nothing about the account. Older accounts need the legacy proofs to sign in.
+                if (body.migration === 'v1' || body.migration === 'password') {{
                   if (legacyV1) legacyV1.value = v1;
-                  body = await probe({{legacy_v1: v1}});
+                  if (legacyPassword) legacyPassword.value = raw;
                 }}
-                if ((body.migration === 'password' || body.migration === true) && legacyPassword) legacyPassword.value = raw;
                 input.value = verifier;
                 input.dataset.sealed = '1';
                 form.submit();
@@ -600,7 +598,7 @@ async def oauth_login(request: Request, session: SessionDep):
         )
     except HTTPException:
         return _page("Connect Agents", "<h1>登入失敗</h1><p>Email or password is incorrect.</p>", 401)
-    await login_succeeded(form.get("email", ""))
+    await login_succeeded(request, form.get("email", ""))
     try:
         # The same factors as the console sign-in. An emailed code is never added as a fallback.
         pending = await mfa_service.start_login(session, user)

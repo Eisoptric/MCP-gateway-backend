@@ -104,10 +104,6 @@ def _stores_verifier(stored: str, password: str) -> bool:
         return False
 
 
-def needs_legacy_migration(stored: str) -> bool:
-    return _pbkdf2_parts(stored) is not None
-
-
 def legacy_password_allowed() -> bool:
     raw = (get_settings().legacy_password_until or "").strip()
     if not raw:
@@ -117,17 +113,67 @@ def legacy_password_allowed() -> bool:
     return date.today() <= date.fromisoformat(raw[:10])
 
 
-def migration_stage(stored: str, *, legacy_v1: str | None, legacy_password: str | None) -> str | None:
-    if not needs_legacy_migration(stored):
+# Checked against when the account has no PBKDF2 hash, so a legacy check costs the same either way.
+_DUMMY_PBKDF2 = f"pbkdf2_sha256${PBKDF2_ROUNDS}${'00' * 16}${'00' * 32}"
+
+
+def _is_v2(password: str) -> bool:
+    return password.startswith(_V2_PREFIX) and verifier_material(password) == password[len(_V2_PREFIX) :]
+
+
+def _argon2_matches(material: str, stored: str) -> bool:
+    real = stored.startswith("$argon2")
+    try:
+        _hasher.verify(stored if real else _DUMMY_HASH, material)
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        return False
+    return real
+
+
+def _pbkdf2_matches(material: str, stored: str) -> bool:
+    real = _pbkdf2_parts(stored) is not None
+    return _pbkdf2_ok(material, stored if real else _DUMMY_PBKDF2) and real
+
+
+def check_sign_in(
+    stored: str,
+    password: str,
+    *,
+    legacy_v1: str | None,
+    legacy_password: str | None,
+) -> tuple[bool, bool]:
+    """(matches the current hash, matches a pre-argon2 hash), for the proofs a sign-in carried.
+
+    Which hashes run depends only on which proofs were sent and their form, never on the
+    account: an unknown address, an argon2 account and a PBKDF2 account cost the same. A v2
+    verifier was never stored as PBKDF2, so it skips the legacy check. The deadline is the
+    caller's to apply.
+    """
+    modern = _argon2_matches(verifier_material(password), stored)
+    legacy = False
+    if not _is_v2(password):
+        # API clients send the raw password or a v1 verifier, which older hashes covered.
+        legacy = _pbkdf2_matches(verifier_material(password), stored)
+        if password != verifier_material(password):
+            legacy = _pbkdf2_matches(password, stored) or legacy
+    if legacy_v1:
+        modern = _argon2_matches(verifier_material(legacy_v1), stored) or modern
+        legacy = _pbkdf2_matches(verifier_material(legacy_v1), stored) or legacy
+    if legacy_password:
+        legacy = _pbkdf2_matches(legacy_password, stored) or legacy
+    return modern, legacy
+
+
+def sign_in_hint(*, legacy_v1: str | None, legacy_password: str | None) -> str | None:
+    """What a failed sign-in asks the browser to add next, while legacy hashes are accepted.
+
+    Given for every failure, whether the address is unknown, current or legacy, so it reveals
+    nothing about the account. The browser then sends the legacy proofs; only a hash that one
+    of them matches can tell legacy apart, and that needs the password.
+    """
+    if not legacy_password_allowed() or legacy_password:
         return None
-    if not legacy_password_allowed():
-        # After the sunset only a caller who proved the legacy password learns it must reset.
-        return None
-    if not legacy_v1 and not legacy_password:
-        return "v1"
-    if not legacy_password:
-        return "password"
-    return None
+    return "password" if legacy_v1 else "v1"
 
 
 def hash_token(token: str) -> str:
@@ -152,24 +198,23 @@ class AuthService:
         user = result.scalar_one_or_none()
         stored = user.password_hash if user is not None else _DUMMY_HASH
         active = user is not None and user.status == "active"
-        ok = await in_thread(verify_password, password, stored) and active
-        if not ok and active and legacy_v1 and await in_thread(verify_password, legacy_v1, stored):
-            ok = True
-        legacy_match = bool(active and legacy_password and await in_thread(_pbkdf2_ok, legacy_password, stored))
-        if not ok and legacy_match and legacy_password_allowed():
-            ok = True
+        modern, legacy = await in_thread(
+            check_sign_in, stored, password, legacy_v1=legacy_v1, legacy_password=legacy_password
+        )
+        allowed = legacy_password_allowed()
+        ok = active and (modern or (legacy and allowed))
         if not ok or user is None:
-            if legacy_match and not legacy_password_allowed():
+            if active and legacy and not allowed:
                 # The caller proved the legacy password, so telling them to reset reveals nothing new.
                 raise HTTPException(
                     status.HTTP_401_UNAUTHORIZED,
                     {"message": "請重設密碼。 Reset your password.", "migration": "reset"},
                 )
-            stage = migration_stage(stored, legacy_v1=legacy_v1, legacy_password=legacy_password) if active else None
-            if stage:
+            hint = sign_in_hint(legacy_v1=legacy_v1, legacy_password=legacy_password)
+            if hint:
                 raise HTTPException(
                     status.HTTP_401_UNAUTHORIZED,
-                    {"message": "Invalid email or password", "migration": stage},
+                    {"message": "Invalid email or password", "migration": hint},
                 )
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
         # Only a v2 verifier replaces the stored hash. A v1 sign-in keeps the old hash so the

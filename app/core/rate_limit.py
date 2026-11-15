@@ -216,33 +216,98 @@ async def signup_allowed(request: Request) -> bool:
     return await allow(f"signup:{limit_address(request)}")
 
 
+# Wrong passwords for one account from one address (an IPv4 address or an IPv6 /64).
 LOGIN_ACCOUNT_FAILURES = 10
+# Wrong passwords for one account from every address together. Past it only addresses that
+# signed in to the account before may keep trying, so many addresses cannot lock the owner out.
+LOGIN_ACCOUNT_CEILING = 50
+KNOWN_ADDRESS_SECONDS = 30 * 86_400
+
+_marks: dict[str, float] = {}
+
+
+def _account(email: str) -> str:
+    return email.strip().lower()
+
+
+def _pair_digest(email: str, address: str) -> str:
+    # Hashed so the key stays short and bounded whatever the email length.
+    return hashlib.sha256(f"{_account(email)}\n{address}".encode()).hexdigest()[:32]
+
+
+async def _mark(key: str, seconds: int) -> None:
+    if _use_redis():
+        try:
+            await _redis_client().set(f"saturn:mark:{key}", "1", ex=seconds)
+        except Exception:  # noqa: S110
+            # Only an exemption is lost; the limits still apply.
+            pass
+        return
+    _marks[key] = time.monotonic() + seconds
+
+
+async def _marked(key: str) -> bool:
+    if _use_redis():
+        try:
+            return bool(await _redis_client().get(f"saturn:mark:{key}"))
+        except Exception:
+            return False
+    until = _marks.get(key)
+    if until is None:
+        return False
+    if until <= time.monotonic():
+        _marks.pop(key, None)
+        return False
+    return True
+
+
+async def known_address(request: Request, email: str) -> bool:
+    """Whether the account signed in from this address within KNOWN_ADDRESS_SECONDS."""
+    return await _marked(f"known:{_pair_digest(email, limit_address(request))}")
+
+
+async def _account_attempt(prefix: str, request: Request, email: str, *, pair_limit: int) -> bool:
+    """One guess against an account: per (account, address), then a shared ceiling for the account.
+
+    Keyed by the pair, so someone else's wrong guesses never use up the owner's attempts. The
+    ceiling still bounds guesses spread over many addresses; once it is reached, the owner's own
+    known addresses keep their per-address allowance.
+    """
+    address = limit_address(request)
+    if not await allow(f"{prefix}-pair:{_pair_digest(email, address)}", limit=pair_limit):
+        return False
+    if await allow(f"{prefix}-account:{_account(email)}", limit=LOGIN_ACCOUNT_CEILING):
+        return True
+    return await known_address(request, email)
 
 
 async def login_allowed(request: Request, email: str | None = None) -> bool:
-    """Whether this sign-in attempt may go ahead. With an email, it also takes one of the account's slots.
+    """Whether this sign-in attempt may go ahead. With an email, it also takes the account's slots.
 
-    Per account, so rotating addresses does not give unlimited guesses against one user. The slot
-    is taken here, before the password is checked: counting a failure only afterwards let every
-    request that was already in flight through, so a burst of guesses passed a limit of ten.
-    A correct password gives its slot back (login_succeeded), so an owner who signs in often is
-    never locked out.
+    The slots are taken here, before the password is checked: counting a failure only afterwards
+    let every request that was already in flight through, so a burst of guesses passed the
+    limit. A correct password gives them back (login_succeeded), so an owner who signs in often
+    is never locked out.
     """
     if not await allow(f"login:{limit_address(request)}"):
         return False
     if not (email or "").strip():
         return True
-    return await allow(_login_account_key(email), limit=LOGIN_ACCOUNT_FAILURES)
+    return await _account_attempt("login", request, email or "", pair_limit=LOGIN_ACCOUNT_FAILURES)
 
 
-def _login_account_key(email: str) -> str:
-    return f"login-account:{email.strip().lower()}"
+async def login_succeeded(request: Request, email: str | None, *, signed_in: bool = True) -> None:
+    """The password was right, or (signed_in=False) the attempt failed for another reason.
 
-
-async def login_succeeded(email: str | None) -> None:
-    """The password was right, or the attempt failed for a reason that was not a wrong password."""
-    if email:
-        await release(_login_account_key(email))
+    A right password also marks this address as the owner's, which lets it past the ceiling.
+    """
+    if not email:
+        return
+    address = limit_address(request)
+    await release(f"login-pair:{_pair_digest(email, address)}")
+    await release(f"login-account:{_account(email)}")
+    if signed_in:
+        await _mark(f"known:{_pair_digest(email, address)}", KNOWN_ADDRESS_SECONDS)
 
 
 async def migration_allowed(request: Request, email: str | None = None) -> bool:
@@ -250,8 +315,8 @@ async def migration_allowed(request: Request, email: str | None = None) -> bool:
         return False
     if email is None:
         return True
-    # It answers whether a legacy password is right, so it gets the same per-account cap as sign-in.
-    return await allow(f"login-migration-account:{email.strip().lower()}", limit=10)
+    # It answers whether a password is right, so it is limited per account the way sign-in is.
+    return await _account_attempt("login-migration", request, email, pair_limit=10)
 
 
 async def code_check_allowed(request: Request, subject: str | None = None) -> bool:
@@ -293,5 +358,6 @@ async def accept_invite_allowed(request: Request) -> bool:
 def reset() -> None:
     global _redis, _calls
     _hits.clear()
+    _marks.clear()
     _calls = 0
     _redis = None
