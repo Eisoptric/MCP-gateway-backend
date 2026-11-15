@@ -170,6 +170,9 @@ jobs:
               "PUBLIC_WS_URL": os.environ["PUBLIC_WS_URL"],
               "SATURN_KMS_KEY": os.environ["SATURN_KMS_KEY"],
               "SATURN_EMBED_WORKER": "false",
+              # Cloud Run does not set it. Without it the request log has no trace field, so
+              # Cloud Logging cannot group a request's lines or link them to Cloud Trace.
+              "GOOGLE_CLOUD_PROJECT": os.environ["GCP_PROJECT_ID"],
           }
           legacy_until = (os.environ.get("LEGACY_PASSWORD_UNTIL") or "").strip()
           if legacy_until:
