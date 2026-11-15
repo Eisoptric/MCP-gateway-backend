@@ -304,3 +304,53 @@ async def test_a_notice_sent_before_a_reconnect_reaches_the_new_stream():
     assert new_queue.get_nowait() == LIST_CHANGED
     assert old_queue.empty()
 
+
+async def _initialize(client, access: str, name: str):
+    return await client.post(
+        "/mcp",
+        headers={"Authorization": f"Bearer {access}"},
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": name}}},
+    )
+
+
+def _gateway_agents(agents: list[dict]) -> list[dict]:
+    return [item for item in agents if item.get("client_id")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("other_name", "refused"),
+    [("Codex", True), ("Cursor", False)],
+    ids=["different-name-hits-the-limit", "same-name-reuses-the-agent"],
+)
+async def test_initializes_at_once_cannot_pass_the_agent_limit(client, monkeypatch, other_name, refused):
+    from app.features.mcp.saturn.services import saturn_mcp as service
+
+    access, _refresh, _client_id = await oauth_tokens(client, "Claude")
+    assert (await _initialize(client, access, "Claude")).status_code == 200
+    monkeypatch.setattr(service, "MAX_AGENTS_PER_USER", 2)
+
+    real = service.SaturnMcp._lock_user
+    inner: list = []
+
+    async def raced(self, *args):
+        if not inner:
+            inner.append(None)
+            # Another initialize found no agent too, took the lock first and committed its
+            # agent; this one waited on the user's row until then.
+            inner[0] = await _initialize(client, access, other_name)
+        return await real(self, *args)
+
+    monkeypatch.setattr(service.SaturnMcp, "_lock_user", raced)
+    outer = await _initialize(client, access, "Cursor")
+
+    assert inner[0].status_code == 200 and "result" in inner[0].json(), inner[0].text
+    agents = _gateway_agents((await client.get("/agents")).json())
+    assert len(agents) == 2
+    if refused:
+        # The count after the lock sees the other request's agent.
+        assert outer.json()["error"]["data"]["reason"] == "AGENT_LIMIT"
+    else:
+        # The lookup after the lock finds the agent the other request made for this name.
+        assert "result" in outer.json(), outer.text
+        assert sorted(item["name"] for item in agents) == ["Claude", "Cursor"]
