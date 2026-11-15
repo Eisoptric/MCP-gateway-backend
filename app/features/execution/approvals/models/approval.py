@@ -35,6 +35,13 @@ class Approval(Base):
             postgresql_where=text("status = 'approved' AND execution_state = 'none'"),
             sqlite_where=text("status = 'approved' AND execution_state = 'none'"),
         ),
+        # Claims nobody settled, which the worker turns uncertain after a while.
+        Index(
+            "ix_approvals_open_claims",
+            "claimed_at",
+            postgresql_where=text("execution_state = 'claimed'"),
+            sqlite_where=text("execution_state = 'claimed'"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -61,6 +68,7 @@ class Approval(Base):
     resubmit_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     expired_phase: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     execution_state: Mapped[str] = mapped_column(String(32), default="none", nullable=False)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     requester_user_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     group_requirements: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
 

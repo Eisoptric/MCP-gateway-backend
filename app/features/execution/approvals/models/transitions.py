@@ -1,13 +1,14 @@
 """Every change an approval may go through.
 
     pending ── approve ──▶ approved ── claim ──▶ claimed ── settle ──▶ executed
-       │                      │                                      │ uncertain
-       ├─ reject              ├─ invalidate                          └ failed
-       ├─ cancel              └─ expire (resubmit window)
-       ├─ invalidate
+       │                      │  ▲                   │               │ uncertain
+       ├─ reject              │  └──── release ──────┘               └ failed
+       ├─ cancel              ├─ invalidate
+       ├─ invalidate          └─ expire (resubmit window)
        └─ expire
 
-A quorum's last vote approves and claims in one step. Nothing else is allowed: a change that is
+A quorum's last vote approves and claims in one step. A claim is released only when its call
+never left Saturn, so a call is still sent at most once. Nothing else is allowed: a change that is
 not listed here cannot be made, and ApprovalLifecycle applies each one only while the stored row
 is still where the change starts.
 """
@@ -39,6 +40,13 @@ class Transition:
             values["execution_state"] = self.execution_to.value
         if self.expiry is not None:
             values["expired_phase"] = self.expiry.value
+        if self.execution_to is ExecutionState.CLAIMED:
+            # A claim that is never settled is found by its age (settle_stuck_claims).
+            if now is None:
+                raise ValueError(f"{self.name} needs the time it happened")
+            values["claimed_at"] = now
+        elif self.execution_to is ExecutionState.NONE:
+            values["claimed_at"] = None
         if self.status_from is ApprovalStatus.PENDING:
             # Resolved means it stopped waiting for a decision. Later changes keep that moment.
             if now is None:
@@ -64,6 +72,9 @@ CANCEL = _from_pending("cancel", ApprovalStatus.CANCELLED)
 
 # The agent sent an approved call again: only one sender may run it.
 CLAIM = _from_approved("claim", execution_to=ExecutionState.CLAIMED)
+
+# The claimed call never left Saturn (its credentials could not be read), so it can be sent later.
+RELEASE = Transition("release", ExecutionState.CLAIMED, ApprovalStatus.APPROVED, execution_to=ExecutionState.NONE)
 
 INVALIDATE = {
     ApprovalStatus.PENDING: _from_pending("invalidate_request", ApprovalStatus.INVALIDATED),

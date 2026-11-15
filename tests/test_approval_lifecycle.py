@@ -15,12 +15,13 @@ from app.features.execution.approvals.models.transitions import (
     EXPIRE,
     INVALIDATE,
     REJECT,
+    RELEASE,
     SETTLE,
 )
 from app.features.execution.approvals.services.lifecycle import approval_lifecycle
 
 NOW = datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc)
-EVERY = [APPROVE, APPROVE_AND_CLAIM, REJECT, CANCEL, CLAIM, *INVALIDATE.values(), *EXPIRE.values(), *SETTLE.values()]
+EVERY = [APPROVE, APPROVE_AND_CLAIM, REJECT, CANCEL, CLAIM, RELEASE, *INVALIDATE.values(), *EXPIRE.values(), *SETTLE.values()]
 
 
 def _approval(status="pending", execution="none", **more) -> Approval:
@@ -89,6 +90,10 @@ def test_nothing_leaves_a_closed_or_finished_approval():
         if transition.status_from is None:
             # Settling: only a claimed call can end, and its status does not change.
             assert transition.execution_from is ExecutionState.CLAIMED and transition.status_to is None
+        elif transition is RELEASE:
+            # The one way back: a claimed call that never left Saturn returns to approved.
+            assert transition.execution_from is ExecutionState.CLAIMED and transition.execution_to is ExecutionState.NONE
+            assert transition.status_from is ApprovalStatus.APPROVED and transition.status_to is None
         else:
             assert transition.status_from in open_statuses, transition.name
             assert transition.execution_from is ExecutionState.NONE, transition.name
@@ -106,6 +111,16 @@ def test_resolved_is_stamped_once_when_it_stops_waiting():
         assert "resolved_at" not in later.changes(now=NOW, actor_id="user_1"), later.name
     with pytest.raises(ValueError):
         APPROVE.changes()
+
+
+def test_a_claim_records_when_it_was_taken():
+    assert CLAIM.changes(now=NOW) == {"execution_state": "claimed", "claimed_at": NOW}
+    assert APPROVE_AND_CLAIM.changes(now=NOW, actor_id="user_1")["claimed_at"] == NOW
+    assert RELEASE.changes() == {"execution_state": "none", "claimed_at": None}
+    # Settling keeps the moment it was claimed.
+    assert "claimed_at" not in SETTLE[ExecutionState.EXECUTED].changes()
+    with pytest.raises(ValueError):
+        CLAIM.changes()
 
 
 # Applying a change to the stored row.
@@ -156,9 +171,9 @@ async def test_a_decision_is_written_once(client):
 async def test_an_approved_call_is_claimed_by_one_sender_and_then_only_settled(client):
     generator, session, approval, _action = await _stored(client, "approved")
     try:
-        assert await approval_lifecycle.move(session, approval, CLAIM)
+        assert await approval_lifecycle.move(session, approval, CLAIM, now=NOW)
         assert approval.execution is ExecutionState.CLAIMED
-        assert not await approval_lifecycle.move(session, approval, CLAIM)
+        assert not await approval_lifecycle.move(session, approval, CLAIM, now=NOW)
         # Running: it can no longer expire or be invalidated under whoever holds the claim.
         assert not await approval_lifecycle.move(session, approval, EXPIRE[ExpiryPhase.RESUBMIT], now=NOW)
         assert not await approval_lifecycle.move(session, approval, INVALIDATE[ApprovalStatus.APPROVED])
@@ -356,5 +371,84 @@ async def test_an_answer_that_cannot_be_saved_keeps_the_claim_as_uncertain(clien
 
         kept = (await session.execute(select(Action.status, Action.result).where(Action.id == action_id))).one()
         assert kept.status == "waiting_approval" and kept.result is None
+    finally:
+        await generator.aclose()
+
+
+# A call that never left Saturn, and a claim nobody settled.
+
+
+async def test_a_claimed_call_that_never_left_saturn_gives_the_approval_back(client):
+    from app.features.credentials.vault.services.pq_crypto import KeyUnavailable
+    from app.features.execution.approvals.services.claimed_call import NotSent
+
+    generator, session, approval, action, run = await _claimed(client)
+    try:
+
+        async def send():
+            try:
+                raise KeyUnavailable()
+            except KeyUnavailable as exc:
+                raise NotSent() from exc
+
+        async def audit(_executed):
+            raise AssertionError("nothing ran")
+
+        # The reason comes out as it was, so the API still answers 503 with Retry-After.
+        with pytest.raises(KeyUnavailable):
+            await _call(session, approval, action, run).run(send, audit)
+        stored = await _row(session, approval.id)
+        assert (stored.status, stored.execution_state) == ("approved", "none")
+        assert approval.claimed_at is None and approval.resubmit_expires_at is not None
+        assert (action.status, run.status) == ("waiting_approval", "waiting_approval")
+        # The agent can send it again, and it is claimed by one sender as before.
+        assert await approval_lifecycle.move(session, approval, CLAIM, now=NOW)
+    finally:
+        await generator.aclose()
+
+
+async def test_the_gateway_raises_not_sent_only_for_a_claimed_call(client, monkeypatch):
+    from app.features.credentials.vault.services.pq_crypto import KeyUnavailable
+    from app.features.execution.approvals.services.claimed_call import NotSent
+    from app.features.mcp.oauth.services.mcp_oauth import mcp_oauth
+    from app.features.mcp.saturn.services.saturn_mcp import saturn_mcp
+    from app.models import Tool
+
+    async def unavailable(_session, _server):
+        raise KeyUnavailable()
+
+    monkeypatch.setattr(mcp_oauth, "authorization_for", unavailable)
+    tool = Tool(id="tool_x", name="x", mcp_endpoint="https://mcp.example.com/mcp")
+    with pytest.raises(NotSent) as held:
+        await saturn_mcp._proxy(None, tool, {}, claimed=True)
+    assert isinstance(held.value.__cause__, KeyUnavailable)
+    # An ordinary call keeps its error as it was.
+    with pytest.raises(KeyUnavailable):
+        await saturn_mcp._proxy(None, tool, {})
+
+
+async def test_a_claim_nobody_settled_becomes_uncertain_after_a_while(client, monkeypatch):
+    from app.features.execution.approvals.services.claimed_call import STUCK_AFTER, settle_stuck_claims
+    from app.features.identity.auth.services import notices
+
+    told = []
+
+    async def notify(_session, run, outcome):
+        told.append((run.id, outcome))
+
+    monkeypatch.setattr(notices, "notify_task_outcome", notify)
+    generator, session, approval, _action = await _stored(client, "approved")
+    try:
+        assert await approval_lifecycle.move(session, approval, CLAIM, now=NOW)
+        await session.commit()
+        # Its request may still be running: left alone.
+        assert await settle_stuck_claims(session, NOW + STUCK_AFTER - timedelta(seconds=1)) == 0
+        assert (await _row(session, approval.id)).execution_state == "claimed"
+        # Long past anything a call can take. It may have run, so it is uncertain, never failed.
+        assert await settle_stuck_claims(session, NOW + STUCK_AFTER) == 1
+        assert (await _row(session, approval.id)).execution_state == "uncertain"
+        assert told == [(approval.run_id, "failed")]
+        # Settled once.
+        assert await settle_stuck_claims(session, NOW + STUCK_AFTER * 2) == 0
     finally:
         await generator.aclose()

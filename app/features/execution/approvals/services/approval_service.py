@@ -34,6 +34,7 @@ from app.models import Action, Agent, Approval, Employee, Run, Tool, User
 from app.core.enums import (
     ActionStatus,
     ActorType,
+    ApprovalStatus,
     AuditEvent,
     ExecutionState,
     PolicyDecision,
@@ -590,7 +591,7 @@ class ApprovalService:
 
         call = ClaimedCall(session, approval, action, run, organization_id=run.organization_id)
         try:
-            await call.run(lambda: saturn_mcp._proxy(session, prepared.tool, arguments), audit)
+            await call.run(lambda: saturn_mcp._proxy(session, prepared.tool, arguments, claimed=True), audit)
         except OutcomeUnrecorded as exc:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -598,6 +599,15 @@ class ApprovalService:
             ) from exc
         except OutcomeUncertain as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, "Upstream outcome is uncertain") from exc
+        except Exception as exc:
+            if approval.state is ApprovalStatus.APPROVED and approval.execution is ExecutionState.NONE:
+                # Released: nothing was sent. The vote stands, and the agent can send the call again.
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "Approved, but the call could not be sent yet. The agent can send it again shortly.",
+                    headers={"Retry-After": "30"},
+                ) from exc
+            raise
 
     async def _revalidate_quorum(
         self,
