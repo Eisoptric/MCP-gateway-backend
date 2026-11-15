@@ -105,9 +105,12 @@ def _stores_verifier(stored: str, password: str) -> bool:
 
 
 def legacy_password_allowed() -> bool:
+    # Off unless a deadline is set. While it is on, every failed sign-in asks the browser for the
+    # legacy proofs (raw password included), so an install with no legacy accounts must not pay
+    # that. Only accounts created before 2026-10-16 have legacy hashes.
     raw = (get_settings().legacy_password_until or "").strip()
     if not raw:
-        return True
+        return False
     from datetime import date
 
     return date.today() <= date.fromisoformat(raw[:10])

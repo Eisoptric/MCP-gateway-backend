@@ -120,7 +120,7 @@ async def test_migration_probe_is_limited_per_account(client):
     assert other.status_code == 200
 
 
-async def test_legacy_password_is_rewritten_as_argon2id(client):
+async def test_legacy_password_is_rewritten_as_argon2id(client, legacy_window):
     import hashlib
     import secrets
 
@@ -168,7 +168,7 @@ async def test_legacy_password_is_rewritten_as_argon2id(client):
         await session_gen.aclose()
 
 
-async def test_v1_verifier_migrates_without_the_raw_password(client):
+async def test_v1_verifier_migrates_without_the_raw_password(client, legacy_window):
     import hashlib
     import secrets
 
@@ -230,7 +230,7 @@ async def test_logout_revokes_session(client):
     assert denied.status_code == 401
 
 
-async def test_login_migration_hides_unknown_accounts_and_is_rate_limited(client, monkeypatch):
+async def test_login_migration_hides_unknown_accounts_and_is_rate_limited(client, legacy_window, monkeypatch):
     missing = await client.post(
         "/auth/login/migration",
         json={"email": "nobody@example.com", "password": "v2.00"},

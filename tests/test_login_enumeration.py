@@ -60,7 +60,7 @@ def _count_hashes(monkeypatch) -> dict[str, int]:
     return counts
 
 
-async def test_probe_gives_every_address_the_same_answer_and_work(client, monkeypatch):
+async def test_probe_gives_every_address_the_same_answer_and_work(client, legacy_window, monkeypatch):
     await _make_legacy("legacy-probe@saturn.ai", "correct horse")
     client.headers.pop("Authorization", None)
     counts = _count_hashes(monkeypatch)
@@ -96,7 +96,7 @@ async def test_failed_sign_in_looks_the_same_for_unknown_current_and_legacy(clie
         assert len(seen) == 1, seen
 
 
-async def test_legacy_accounts_still_sign_in_with_the_hinted_proofs(client):
+async def test_legacy_accounts_still_sign_in_with_the_hinted_proofs(client, legacy_window):
     await _make_legacy("legacy-ok@saturn.ai", "correct horse")
     client.headers.pop("Authorization", None)
     probe = await client.post("/auth/login/migration", json={"email": "legacy-ok@saturn.ai", "password": V2})
@@ -126,3 +126,15 @@ async def test_no_hint_after_the_legacy_deadline(client, monkeypatch):
         assert probe.json() == {"migration": None}
         refused = await client.post("/auth/login", json={"email": email, "password": V2})
         assert refused.json()["detail"] == "Invalid email or password"
+
+
+async def test_without_a_legacy_date_a_failed_sign_in_asks_for_nothing_more(client):
+    """No deadline set (a new install): legacy hashes are refused, so a failed sign-in never
+    asks the browser for the raw password."""
+    from app.features.identity.auth.services.auth_service import legacy_password_allowed, sign_in_hint
+
+    assert get_settings().legacy_password_until in ("", None)
+    assert not legacy_password_allowed()
+    assert sign_in_hint(legacy_v1=None, legacy_password=None) is None
+    assert sign_in_hint(legacy_v1="x" * 64, legacy_password=None) is None
+

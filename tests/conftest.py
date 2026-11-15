@@ -112,3 +112,13 @@ async def client():
     mcp_gateway.reset()
     mcp_sessions.reset()
     await engine.dispose()
+
+
+@pytest.fixture
+def legacy_window(monkeypatch):
+    """Accept legacy (pre-argon2) passwords, as a deployment with old accounts does until its
+    LEGACY_PASSWORD_UNTIL date. They are refused when no date is set."""
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "legacy_password_until", "2999-12-31")
+
