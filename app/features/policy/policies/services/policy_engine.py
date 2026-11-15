@@ -125,6 +125,31 @@ def _text(value: str) -> str:
     return unicodedata.normalize("NFKC", value)
 
 
+def _loose_text(value: str) -> str:
+    """How a lenient upstream might read the text: NFKC, case-folded, without invisible format
+    characters, outer whitespace or repeated inner whitespace."""
+    folded = unicodedata.normalize("NFKC", unicodedata.normalize("NFKC", value).casefold())
+    visible = "".join(char for char in folded if unicodedata.category(char) != "Cf")
+    return " ".join(visible.split())
+
+
+def _compare_text(op, left: str, right: str) -> bool | None:
+    """eq/ne on text. A value that differs from the rule's only in case, width, spacing or invisible
+    characters ("Attacker@Example.com ") is a lookalike: the upstream may well treat it as the same
+    value, so the engine cannot tell and answers None.
+
+    None resolves toward the restriction in every direction: a deny or approval on `eq X` still
+    applies to a lookalike of X (no dodge), a deny on `ne X` still applies (a lookalike is not
+    trusted as X), and an allow on either operator does not apply (an allow is never widened to
+    spellings its author did not write). Values that differ after folding, or match exactly,
+    compare as before.
+    """
+    exact = bool(op(_text(left), _text(right)))
+    if exact != bool(op(_loose_text(left), _loose_text(right))):
+        return None
+    return exact
+
+
 def compare(symbol: str, left: Any, right: Any) -> bool | None:
     """True or False when the operands compare cleanly, None when they cannot be compared.
 
@@ -149,7 +174,7 @@ def compare(symbol: str, left: Any, right: Any) -> bool | None:
             return bool(op(left, right))
         return None
     if isinstance(left, str) and isinstance(right, str):
-        return bool(op(_text(left), _text(right)))
+        return _compare_text(op, left, right)
     if isinstance(left, (int, float)) or isinstance(right, (int, float)):
         # One side is a number the other side cannot be read as: not comparable.
         return None
