@@ -151,8 +151,8 @@ async def test_another_app_with_the_same_name_gets_its_own_empty_agent(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "step",
-    # Before the existing-id check, and between that check and the insert.
-    ["_over_agent_limit", "_insert_client_agent"],
+    # Before the user's row lock, and between the existing-id check and the insert.
+    ["_lock_user", "_insert_client_agent"],
 )
 async def test_two_initializes_at_once_share_one_agent(client, monkeypatch, step):
     from app.features.mcp.saturn.services.saturn_mcp import SaturnMcp
@@ -160,6 +160,14 @@ async def test_two_initializes_at_once_share_one_agent(client, monkeypatch, step
     access, _refresh, client_id = await oauth_tokens(client, "Claude")
     initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "Claude"}}}
     headers = {"Authorization": f"Bearer {access}"}
+    if step == "_insert_client_agent":
+        # With the lock, the second request waits for the first to commit and never reaches the
+        # insert at the same time; on PostgreSQL the inner request below would wait forever.
+        # Without it, this checks the insert's own fallback when the id is already taken.
+        async def unlocked(self, *args):
+            return None
+
+        monkeypatch.setattr(SaturnMcp, "_lock_user", unlocked)
     real = getattr(SaturnMcp, step)
     inner: list = []
 
