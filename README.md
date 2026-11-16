@@ -11,7 +11,7 @@ Agents call one MCP endpoint. Saturn shows each agent only its tool set, checks 
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688.svg?logo=fastapi&logoColor=white)
 [![Test](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/actions/workflows/test.yml/badge.svg)](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/actions/workflows/test.yml)
 
-[Features](#features) · [Architecture](#architecture) · [Quick start](#quick-start) · [Policies](#policies-and-approvals) · [Security](#security) · [Configuration](#configuration) · [Deploy](#deploy) · [中文](README_ZH.md)
+[Features](#features) · [Architecture](#architecture) · [Quick start](#quick-start) · [Policies](#policies-and-approvals) · [Security](#security) · [Configuration](#configuration) · [Deploy](#deploy) · [Known limitations](#known-limitations) · [Changelog](CHANGELOG.md) · [中文](README_ZH.md)
 
 </div>
 
@@ -388,6 +388,39 @@ Everything installs with `--require-hashes`, so any package, direct or transitiv
 Cloud Run + Cloud SQL + Memorystore, with Cloud KMS for the vault. The [deploy workflow](.github/workflows/deploy-cloud-run.yml) runs on every push to `main`: it runs the Test workflow, then deploys through the `production` environment, one deploy at a time.
 
 See [`infra/gcp/README.md`](infra/gcp/README.md) for setup, every deploy variable, and the hardening runbooks (runtime service account, migration job, Redis TLS, ingress).
+
+## Known limitations
+
+These are known as of [0.1.0](CHANGELOG.md) and not yet fixed.
+
+### Accounts and sign-in
+
+- Reset and email codes are 6 digits. Guesses are capped per code and per address, but anyone who knows an account's email can request a new reset code, and the new code replaces the one the owner is holding. Fixing that needs a different reset flow.
+- A passkey that cannot do user verification cannot be used for step-up.
+- Reuse of an OAuth authorization code is detected for about a day, because used codes are forgotten after that.
+- The addresses an account has signed in from, which relax some limits, are kept in Redis and are forgotten if Redis is flushed.
+
+### Gateway
+
+- When a client reconnects, the stream it left behind is not told that the session closed. That stream ends when the client disconnects.
+- Two organizations that use exactly the same upstream credentials share one upstream MCP session, because upstream they are the same identity.
+- A new client takes a lock on the user's row while its agent is created. That lock has no timeout.
+
+### Policies, approvals and audit
+
+- Editing an active policy moves it back to draft, and its limits do not apply until it is activated again.
+- `/approvals` and `/activity` are not narrowed by the agent mapping that `/runs` uses. Applying it as is would hide requests from approvers outside the mapping.
+- A platform admin can create a member with the admin role, and that admin's first payload key is approved automatically.
+- `audit_logs` and `webhook_deliveries` have no retention limit. Each upstream result can be up to 4 MB and is stored twice.
+- Each audit record encapsulates its data key separately to every approved member's key. At 50 members that costs about 1 ms of CPU, but the envelope is about 78 KiB. Making it smaller would change who can open records later, so it stays as it is.
+
+### Deployment and tests
+
+- `infra/gcp/split-deploy-identities.sh` grants each repository's deployer `roles/run.developer` on the whole project, so either pipeline can change the other's Cloud Run resources. To prevent that, scope the grant to each service and to the migrate job.
+- `infra/gcp/rotate-db-password.sh` has only been run against stand-in commands, never against a second Cloud SQL instance.
+- With no load balancer in front of Cloud Run, `ORIGIN_AUTH_SECRET` is what keeps clients off the `*.run.app` URL, and `REQUIRE_HARDENED_DEPLOY` stays off.
+- The [Uptime workflow](.github/workflows/uptime.yml) requests `/health` from GitHub-hosted runners. If Cloudflare blocks or challenges those addresses, every run fails with 403 even while the service is up.
+- Tests run on SQLite by default, which does not check parameter types and takes no row locks. Changes to raw SQL, migrations or locking also need a run against PostgreSQL.
 
 ## License
 
