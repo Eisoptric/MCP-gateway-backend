@@ -11,7 +11,7 @@ Agent 只呼叫一個 MCP 端點。Saturn 只讓每個 Agent 看到自己的工�
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688.svg?logo=fastapi&logoColor=white)
 [![Test](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/actions/workflows/test.yml/badge.svg)](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/actions/workflows/test.yml)
 
-[功能](#功能) · [架構](#架構) · [快速開始](#快速開始) · [政策](#政策與核准) · [安全](#安全) · [設定](#設定) · [部署](#部署) · [English](README.md)
+[功能](#功能) · [架構](#架構) · [快速開始](#快速開始) · [政策](#政策與核准) · [安全](#安全) · [設定](#設定) · [部署](#部署) · [已知限制](#已知限制) · [更新紀錄](CHANGELOG.md) · [English](README.md)
 
 </div>
 
@@ -388,6 +388,39 @@ pytest
 Cloud Run + Cloud SQL + Memorystore，金庫使用 Cloud KMS。[部署 workflow](.github/workflows/deploy-cloud-run.yml) 在每次推送到 `main` 時執行：先跑 Test workflow，再透過 `production` environment 部署，一次只執行一個部署。
 
 設定方式、所有部署變數與強化作業手冊（runtime service account、遷移 Job、Redis TLS、ingress）見 [`infra/gcp/README.md`](infra/gcp/README.md)。
+
+## 已知限制
+
+以下是 [0.1.0](CHANGELOG.md) 時已知、尚未修正的問題。
+
+### 帳號與登入
+
+- 重設碼與 Email 驗證碼是 6 位數。猜測次數按驗證碼和位址分別設了上限，但只要知道帳號的 Email，任何人都能申請新的重設碼，蓋掉帳號主人手上那一組。要解決得改重設流程。
+- 不支援使用者驗證（user verification）的 passkey 不能用來重新驗證。
+- OAuth 授權碼被重複使用時，只能在大約一天內偵測到，因為用過的碼一天後就會清掉。
+- 帳號登入過的位址會放寬部分限制。這份紀錄放在 Redis，Redis 清空就會遺失。
+
+### Gateway
+
+- 用戶端重新連線後，被留下的舊串流不會收到工作階段已關閉的通知，要等用戶端斷線才會結束。
+- 兩個組織如果使用完全相同的上游憑證，會共用同一個上游 MCP 工作階段，因為在上游它們本來就是同一個身分。
+- 新用戶端建立 agent 時，會鎖住該使用者的資料列，這個鎖沒有逾時。
+
+### 政策、核准與稽核
+
+- 編輯啟用中的政策會讓它回到草稿，重新啟用之前，其中的限制都不會生效。
+- `/approvals` 與 `/activity` 沒有套用 `/runs` 使用的 agent 對應過濾。直接套用的話，不在對應裡的核准者會看不到該核准的請求。
+- 平台管理員可以建立 admin 角色的成員，而那位 admin 的第一把內容金鑰會自動核准。
+- `audit_logs` 與 `webhook_deliveries` 沒有保留期限。每筆上游結果最大 4 MB，而且存兩份。
+- 每筆稽核紀錄會把資料金鑰分別封裝給每位已核准成員的金鑰。50 位成員時約多花 1 毫秒 CPU，但信封約 78 KiB。要縮小就得改變之後誰能打開紀錄，所以維持現狀。
+
+### 部署與測試
+
+- `infra/gcp/split-deploy-identities.sh` 給每個 repo 的部署身分整個專案層級的 `roles/run.developer`，所以任一條 pipeline 都能改動另一邊的 Cloud Run 資源。要避免這點，請把授權縮小到各自的服務與 migrate job。
+- `infra/gcp/rotate-db-password.sh` 只用替身指令跑過，沒有對第二個 Cloud SQL 執行個體實際執行過。
+- Cloud Run 前面沒有負載平衡器，靠 `ORIGIN_AUTH_SECRET` 擋住直接連到 `*.run.app` 的請求，`REQUIRE_HARDENED_DEPLOY` 也維持關閉。
+- [Uptime workflow](.github/workflows/uptime.yml) 從 GitHub 提供的 runner 請求 `/health`。如果 Cloudflare 擋下或挑戰這些位址，即使服務正常，每次都會因 403 失敗。
+- 測試預設在 SQLite 上執行，SQLite 不檢查參數型別，也沒有列鎖。改到原生 SQL、遷移或鎖的時候，還要在 PostgreSQL 上跑一次。
 
 ## 授權
 
