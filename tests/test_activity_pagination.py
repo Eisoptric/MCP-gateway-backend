@@ -111,8 +111,8 @@ async def test_the_source_filter_reads_the_column_not_the_payload(client):
             _mcp("evt_console", at, source="console", payload={"source": "console"}),
         ],
     )
-    # On PostgreSQL migration 063's insert trigger copies the payload's source into the column,
-    # so clear it afterwards to get a row that has the source only in its payload.
+    # Clear the column afterwards, so the row has its source only in the payload whatever fills
+    # the column on insert (063's trigger did on PostgreSQL until 066 dropped it).
     from sqlalchemy import update
 
     generator, session = await _db(client)

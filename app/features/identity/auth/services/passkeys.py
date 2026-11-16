@@ -116,7 +116,9 @@ class PasskeyService:
             allow_credentials=[
                 PublicKeyCredentialDescriptor(id=base64url_to_bytes(item.credential_id)) for item in records
             ],
-            user_verification=UserVerificationRequirement.PREFERRED,
+            # Step-up accepts the passkey on its own, with no password, so it must prove both
+            # factors: the device, and the PIN or biometric that unlocks it.
+            user_verification=UserVerificationRequirement.REQUIRED,
         )
         await self._store_challenge(session, user.id, "reauth", options.challenge)
         return json.loads(options_to_json(options))
@@ -141,6 +143,7 @@ class PasskeyService:
                 expected_origin=origin,
                 credential_public_key=base64url_to_bytes(record.public_key),
                 credential_current_sign_count=record.sign_count,
+                require_user_verification=True,
             )
         except WebAuthnException as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Passkey could not be verified") from exc
@@ -158,6 +161,8 @@ class PasskeyService:
             allow_credentials=[
                 PublicKeyCredentialDescriptor(id=base64url_to_bytes(item.credential_id)) for item in records
             ],
+            # Sign-in reaches this only after the password, so the device alone is the second
+            # factor here; a security key without a PIN still works.
             user_verification=UserVerificationRequirement.PREFERRED,
         )
         await self._store_challenge(session, user.id, "login", options.challenge)

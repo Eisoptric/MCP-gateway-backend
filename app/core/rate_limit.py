@@ -266,7 +266,16 @@ async def known_address(request: Request, email: str) -> bool:
     return await _marked(f"known:{_pair_digest(email, limit_address(request))}")
 
 
-async def _account_attempt(prefix: str, request: Request, email: str, *, pair_limit: int) -> bool:
+async def _account_attempt(
+    prefix: str,
+    request: Request,
+    email: str,
+    *,
+    pair_limit: int,
+    pair_window: int = WINDOW_SECONDS,
+    ceiling: int = LOGIN_ACCOUNT_CEILING,
+    ceiling_window: int = WINDOW_SECONDS,
+) -> bool:
     """One guess against an account: per (account, address), then a shared ceiling for the account.
 
     Keyed by the pair, so someone else's wrong guesses never use up the owner's attempts. The
@@ -274,9 +283,9 @@ async def _account_attempt(prefix: str, request: Request, email: str, *, pair_li
     known addresses keep their per-address allowance.
     """
     address = limit_address(request)
-    if not await allow(f"{prefix}-pair:{_pair_digest(email, address)}", limit=pair_limit):
+    if not await allow(f"{prefix}-pair:{_pair_digest(email, address)}", limit=pair_limit, window=pair_window):
         return False
-    if await allow(f"{prefix}-account:{_account(email)}", limit=LOGIN_ACCOUNT_CEILING):
+    if await allow(f"{prefix}-account:{_account(email)}", limit=ceiling, window=ceiling_window):
         return True
     return await known_address(request, email)
 
@@ -330,6 +339,39 @@ async def code_check_allowed(request: Request, subject: str | None = None) -> bo
     if not subject:
         return True
     return await allow(f"code-check-account:{subject.strip().lower()}", limit=15)
+
+
+# Wrong reset codes from one (account, address) pair in an hour. An hour outlasts a code, so one
+# address never gets more than this against any one code. Keyed by the pair: a stranger's wrong
+# guesses no longer use up the owner's, as the old per-account budget of 15 did.
+RESET_CODE_PAIR_FAILURES = 5
+RESET_CODE_PAIR_SECONDS = 3600
+# Wrong reset codes for one account from every address in a day: at most 100 / 10^6 = 0.01% a
+# day to guess one. Past it only addresses that signed in to the account before may keep trying.
+RESET_CODE_ACCOUNT_CEILING = 100
+
+
+async def reset_code_allowed(request: Request, email: str) -> bool:
+    """Whether this reset-code guess may go ahead. Takes its slots before the code is checked.
+
+    A right code gives them back (reset_code_succeeded), so only wrong guesses stay counted.
+    """
+    if not await allow(f"code-check:{limit_address(request)}", limit=30):
+        return False
+    return await _account_attempt(
+        "reset-code",
+        request,
+        email,
+        pair_limit=RESET_CODE_PAIR_FAILURES,
+        pair_window=RESET_CODE_PAIR_SECONDS,
+        ceiling=RESET_CODE_ACCOUNT_CEILING,
+        ceiling_window=_DAY_SECONDS,
+    )
+
+
+async def reset_code_succeeded(request: Request, email: str) -> None:
+    await release(f"reset-code-pair:{_pair_digest(email, limit_address(request))}")
+    await release(f"reset-code-account:{_account(email)}")
 
 
 # Wrong emailed sign-in codes one account may collect in a day, across every challenge and

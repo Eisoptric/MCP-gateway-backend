@@ -144,7 +144,7 @@ async def saturn_mcp_listen(request: Request, session: SessionDep) -> StreamingR
     record = await mcp_sessions.get(session_id, user.id, client_id)
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "MCP session not found")
-    stream = mcp_sessions.listen(record)
+    stream, queue = mcp_sessions.listen(record)
     # The stream can stay open for minutes and never touches the database again. Give the
     # connection back now; otherwise a handful of listening agents would hold the whole pool.
     await session.commit()
@@ -155,7 +155,8 @@ async def saturn_mcp_listen(request: Request, session: SessionDep) -> StreamingR
             yield ": connected\n\n"
             while True:
                 try:
-                    note = await asyncio.wait_for(record.queue.get(), STREAM_PING_SECONDS)
+                    # Its own queue, not record.queue: a newer stream for this session gets another.
+                    note = await asyncio.wait_for(queue.get(), STREAM_PING_SECONDS)
                 except asyncio.TimeoutError:
                     # A comment line. Proxies end a stream that stays silent (Cloudflare after 100 s).
                     yield ": ping\n\n"

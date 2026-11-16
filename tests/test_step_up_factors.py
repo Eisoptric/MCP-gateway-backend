@@ -124,3 +124,123 @@ async def test_an_account_whose_strong_factor_is_a_passkey_confirms_with_it(clie
 
 async def test_an_account_without_a_second_factor_still_uses_the_password_alone(client):
     assert (await client.post("/auth/reauth", json={"password": "saturn"})).status_code == 204
+
+
+async def _with_email_mfa() -> None:
+    from app.models import User
+
+    session, generator = await _session()
+    try:
+        user = await session.get(User, get_settings().default_actor_id)
+        user.email_mfa = True
+        await session.commit()
+    finally:
+        await generator.aclose()
+
+
+async def test_an_account_with_emailed_codes_needs_the_code_as_well_as_the_password(client, monkeypatch):
+    sent = []
+
+    async def capture(_email, code, _locale=None):
+        sent.append(code)
+
+    monkeypatch.setattr("app.features.identity.auth.controllers.auth.send_reauth_code", capture)
+    await _with_email_mfa()
+
+    # A wrong password sends nothing.
+    assert (await client.post("/auth/reauth", json={"password": "nope-nope"})).status_code == 401
+    assert sent == []
+
+    alone = await client.post("/auth/reauth", json={"password": "saturn"})
+    assert alone.status_code == 403, alone.text
+    assert alone.json()["detail"]["second_factor"] == "email"
+    assert len(sent) == 1
+    # Asking again within the minute is answered the same way; the code already sent still works.
+    again = await client.post("/auth/reauth", json={"password": "saturn"})
+    assert again.status_code == 403
+    assert len(sent) == 1
+
+    # The emailed code alone is not enough either, and is refused before it is checked.
+    code_only = await client.post("/auth/reauth", json={"code": sent[-1]})
+    assert code_only.status_code == 403
+    assert code_only.json()["detail"]["second_factor"] == "email"
+
+    wrong = await client.post("/auth/reauth", json={"password": "saturn", "code": f"{(int(sent[-1]) + 1) % 1_000_000:06d}"})
+    assert wrong.status_code == 400
+
+    await _stale(monkeypatch)
+    ok = await client.post("/auth/reauth", json={"password": "saturn", "code": sent[-1]})
+    assert ok.status_code == 204, ok.text
+    monkeypatch.setattr("app.features.identity.auth.services.auth_service.RECENT_AUTH", timedelta(minutes=10))
+    options = await client.post("/auth/passkeys/options", headers={"Origin": ORIGIN})
+    assert options.status_code == 200, options.text
+    # The code was used up.
+    assert (await client.post("/auth/reauth", json={"password": "saturn", "code": sent[-1]})).status_code == 400
+
+
+async def test_a_right_code_with_a_wrong_password_is_refused(client, monkeypatch):
+    sent = []
+
+    async def capture(_email, code, _locale=None):
+        sent.append(code)
+
+    monkeypatch.setattr("app.features.identity.auth.controllers.auth.send_reauth_code", capture)
+    await _with_email_mfa()
+    assert (await client.post("/auth/reauth/email/code")).status_code == 204
+    refused = await client.post("/auth/reauth", json={"password": "nope-nope", "code": sent[-1]})
+    assert refused.status_code == 401
+
+
+async def test_step_up_with_a_passkey_requires_user_verification(client):
+    from app.models import User
+
+    session, generator = await _session()
+    try:
+        user = await session.get(User, get_settings().default_actor_id)
+        passkey = await enrol(session, user.id)
+        await session.commit()
+    finally:
+        await generator.aclose()
+
+    options = await client.post("/auth/reauth/passkey/options", headers={"Origin": ORIGIN})
+    assert options.status_code == 200, options.text
+    assert options.json()["userVerification"] == "required"
+    # Touching the key without its PIN or biometric is only one factor.
+    unverified = await client.post(
+        "/auth/reauth",
+        headers={"Origin": ORIGIN},
+        json={"credential": passkey.answer(options.json(), verified=False)},
+    )
+    assert unverified.status_code == 400, unverified.text
+
+    options = await client.post("/auth/reauth/passkey/options", headers={"Origin": ORIGIN})
+    verified = await client.post(
+        "/auth/reauth",
+        headers={"Origin": ORIGIN},
+        json={"credential": passkey.answer(options.json())},
+    )
+    assert verified.status_code == 204, verified.text
+
+
+async def test_changing_the_password_does_not_count_as_step_up(client):
+    """A stolen session plus a known password must not skip the second factor."""
+    from sqlalchemy import update
+
+    from app.core.ids import utcnow
+    from app.models import AuthSession
+
+    await _with_totp(client)
+    session, generator = await _session()
+    try:
+        # Signed in an hour ago: the guarded routes need a step-up.
+        await session.execute(update(AuthSession).values(authenticated_at=utcnow() - timedelta(hours=1)))
+        await session.commit()
+    finally:
+        await generator.aclose()
+    assert (await client.post("/auth/passkeys/options", headers={"Origin": ORIGIN})).status_code == 403
+
+    changed = await client.patch("/auth/password", json={"current_password": "saturn", "new_password": "saturn-changed-1"})
+    assert changed.status_code == 204, changed.text
+    # Still signed in, and still asked for the second factor.
+    assert (await client.get("/auth/me")).status_code == 200
+    assert (await client.post("/auth/passkeys/options", headers={"Origin": ORIGIN})).status_code == 403

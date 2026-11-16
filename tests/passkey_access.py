@@ -29,13 +29,14 @@ class SoftPasskey:
         cose = {1: 2, 3: -7, -1: 1, -2: numbers.x.to_bytes(32, "big"), -3: numbers.y.to_bytes(32, "big")}
         return _b64u(cbor2.dumps(cose))
 
-    def answer(self, options: dict, origin: str = ORIGIN) -> dict:
+    def answer(self, options: dict, origin: str = ORIGIN, *, verified: bool = True) -> dict:
         self._count += 1
         client = json.dumps(
             {"type": "webauthn.get", "challenge": options["challenge"], "origin": origin, "crossOrigin": False}
         ).encode()
-        # Flags: user present and user verified.
-        data = hashlib.sha256(options["rpId"].encode()).digest() + bytes([0x05]) + struct.pack(">I", self._count)
+        # Flags: user present (0x01), and user verified (0x04) unless told otherwise.
+        flags = 0x05 if verified else 0x01
+        data = hashlib.sha256(options["rpId"].encode()).digest() + bytes([flags]) + struct.pack(">I", self._count)
         signature = self._key.sign(data + hashlib.sha256(client).digest(), ec.ECDSA(hashes.SHA256()))
         return {
             "id": self.credential_id,
