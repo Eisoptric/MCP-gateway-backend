@@ -419,7 +419,7 @@ These are known as of [0.1.0](CHANGELOG.md) and not yet fixed.
 - `infra/gcp/split-deploy-identities.sh` grants each repository's deployer `roles/run.developer` on the whole project, so either pipeline can change the other's Cloud Run resources. To prevent that, scope the grant to each service and to the migrate job.
 - `infra/gcp/rotate-db-password.sh` has only been run against stand-in commands, never against a second Cloud SQL instance.
 - With no load balancer in front of Cloud Run, `ORIGIN_AUTH_SECRET` is what keeps clients off the `*.run.app` URL, and `REQUIRE_HARDENED_DEPLOY` stays off.
-- The [Uptime workflow](.github/workflows/uptime.yml) requests `/health` from GitHub-hosted runners. If Cloudflare blocks or challenges those addresses, every run fails with 403 even while the service is up.
+- The [uptime checks](infra/gcp/README.md#uptime-checks) request `/health` on each `*.run.app` URL, not through Cloudflare. They do not notice a Cloudflare or DNS outage, and they stop working once a service's ingress is `internal-and-cloud-load-balancing`.
 - Tests run on SQLite by default, which does not check parameter types and takes no row locks. Changes to raw SQL, migrations or locking also need a run against PostgreSQL.
 
 ## License
