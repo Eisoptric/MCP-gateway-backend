@@ -579,6 +579,32 @@ The console (Frontend) needs the same treatment: its `*.run.app` URL proxies `/s
 API. Put it behind its own load balancer and Cloud Armor policy the same way, then set
 `CLOUD_RUN_INGRESS=internal-and-cloud-load-balancing` on the Frontend repo.
 
+### Uptime checks from Cloud Monitoring
+
+The outside check of production is a Cloud Monitoring uptime check, not a GitHub workflow. On the
+Cloudflare free plan, Bot Fight Mode challenges GitHub-hosted runners with a 403, and no rule can
+exempt a request from it. Requests from Google Cloud pass: the worker checks the API through its
+public address every minute, and those checks succeed.
+
+`uptime-checks.sh` creates, for each of `api.saturn-core.com` and `dashboard.saturn-core.com`:
+
+- an uptime check on `https://<host>/health` every 5 minutes from three regions, which passes only
+  on a 200 with a valid certificate, and
+- an alert policy that emails `ALERT_EMAIL` when two regions or more fail.
+
+```bash
+GCP_PROJECT_ID=... ALERT_EMAIL=you@example.com bash infra/gcp/uptime-checks.sh
+```
+
+Run it as someone who can edit Monitoring (`roles/monitoring.editor`) and enable services. It is
+safe to re-run: what exists is reused. To change a check or policy, delete it in the console and
+run the script again.
+
+After the first run, open Monitoring > Uptime checks and confirm both checks pass. If they fail
+with 403, Bot Fight Mode is challenging Google's probes too, and the only remedy left on the free
+plan is to turn Bot Fight Mode off. Three regions every 5 minutes is about 26,000 runs a month per
+check, which should be inside Cloud Monitoring's free allotment; check the current pricing.
+
 ### Per-browser rate limits through the console
 
 Console requests reach the API from the console's own address, so `CF-Connecting-IP` names the
