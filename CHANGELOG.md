@@ -6,7 +6,7 @@ Notable changes to Saturn Backend. The format follows [Keep a Changelog](https:/
 
 ### Changed
 
-- Uptime is checked by Cloud Monitoring (`infra/gcp/uptime-checks.sh`) on each Cloud Run URL, with an email alert. The scheduled GitHub Actions check is removed: Cloudflare challenged GitHub-hosted runners, so every run failed with 403 while the service was up.
+- The outside uptime check moved from a scheduled GitHub workflow to Cloud Monitoring, created by `infra/gcp/uptime-checks.sh`, with an email alert. On the Cloudflare free plan, Bot Fight Mode answered every run from GitHub with a 403 while the API was up.
 
 ## [0.1.0] - 2026-11-16
 
@@ -52,5 +52,4 @@ This is the first tagged release, and it ends the first phase of development. Th
 - [#12](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/pull/12) Default deny when no policy applies
 - [#1](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/pull/1) Require SATURN_KEM_SEED and accept the split login verifier
 
-[Unreleased]: https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/releases/tag/v0.1.0

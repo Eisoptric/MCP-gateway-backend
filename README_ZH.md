@@ -419,7 +419,7 @@ Cloud Run + Cloud SQL + Memorystore，金庫使用 Cloud KMS。[部署 workflow]
 - `infra/gcp/split-deploy-identities.sh` 給每個 repo 的部署身分整個專案層級的 `roles/run.developer`，所以任一條 pipeline 都能改動另一邊的 Cloud Run 資源。要避免這點，請把授權縮小到各自的服務與 migrate job。
 - `infra/gcp/rotate-db-password.sh` 只用替身指令跑過，沒有對第二個 Cloud SQL 執行個體實際執行過。
 - Cloud Run 前面沒有負載平衡器，靠 `ORIGIN_AUTH_SECRET` 擋住直接連到 `*.run.app` 的請求，`REQUIRE_HARDENED_DEPLOY` 也維持關閉。
-- [Uptime checks](infra/gcp/README.md#uptime-checks) 直接請求各服務 `*.run.app` 位址上的 `/health`，不經過 Cloudflare。Cloudflare 或 DNS 出問題時它們察覺不到；服務的 ingress 改成 `internal-and-cloud-load-balancing` 之後，它們也會失效。
+- 對外的 uptime 檢查改由 `infra/gcp/uptime-checks.sh` 建立的 Cloud Monitoring 檢查負責（見 [Uptime checks from Cloud Monitoring](infra/gcp/README.md#uptime-checks-from-cloud-monitoring)）。這支腳本只對替身指令跑過；Cloudflare 的 Bot Fight Mode 會放行 Google 的探測，是從 worker 自己的檢查推論而來，尚未實際看到。
 - 測試預設在 SQLite 上執行，SQLite 不檢查參數型別，也沒有列鎖。改到原生 SQL、遷移或鎖的時候，還要在 PostgreSQL 上跑一次。
 
 ## 授權
