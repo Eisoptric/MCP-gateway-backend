@@ -280,11 +280,9 @@ class PolicyService:
         return policy
 
     async def delete_policy(self, session: AsyncSession, policy: Policy) -> None:
-        if _is_default(policy):
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                "The organization default policy cannot be deleted. Change its rules or pause it instead.",
-            )
+        # The default policy can be deleted like any other. Without it, a tool no policy has a rule
+        # for follows the agent's tool set (policy_engine.tool_set_fallback). Nothing recreates it:
+        # connecting a server only extends a default policy that still exists.
         await bump_policy_revision(session, policy.organization_id)
         await session.execute(delete(agent_policies).where(agent_policies.c.policy_id == policy.id))
         # Forget the loaded links, or deleting the policy deletes those rows again and fails
