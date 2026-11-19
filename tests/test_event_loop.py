@@ -93,7 +93,7 @@ async def test_a_failed_direct_call_records_how_it_ended(client, monkeypatch):
     call = await _gateway(client, monkeypatch)
     await call({"repo": "works"})
 
-    async def unknown(endpoint, tool, arguments, authorization=""):
+    async def unknown(endpoint, tool, arguments, authorization="", **_kwargs):
         raise McpOutcomeUnknown("MCP server returned HTTP 500")
 
     monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", unknown)
@@ -112,7 +112,7 @@ async def test_a_failed_direct_call_records_how_it_ended(client, monkeypatch):
 async def test_endpoint_lookups_run_in_a_worker_thread(monkeypatch):
     seen = []
 
-    def target(endpoint, authorization):
+    def target(endpoint, authorization, extra_hosts=()):
         seen.append(threading.get_ident())
         raise HTTPException(400, "stop here")
 

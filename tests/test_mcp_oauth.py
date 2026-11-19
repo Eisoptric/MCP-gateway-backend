@@ -13,7 +13,7 @@ def _response(status_code: int, body: dict) -> httpx.Response:
 @pytest.mark.asyncio
 async def test_marketplace_connect_opens_provider_consent_and_stores_the_token(client, monkeypatch):
     monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         assert endpoint == "https://mcp.notion.com/mcp"
         if authorization != "access-1":
             raise McpUnauthorized(
@@ -88,7 +88,7 @@ async def test_marketplace_connect_opens_provider_consent_and_stores_the_token(c
 
 @pytest.mark.asyncio
 async def test_marketplace_connects_without_a_popup_when_the_mcp_is_public(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "docs", "description": "Docs", "inputSchema": {"type": "object", "properties": {}}}]
 
     monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth.list_remote_tools", listed)
@@ -107,7 +107,7 @@ async def test_marketplace_connects_without_a_popup_when_the_mcp_is_public(clien
 
 @pytest.mark.asyncio
 async def test_provider_denial_does_not_store_a_token(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         raise McpUnauthorized('Bearer resource_metadata="https://mcp.notion.com/.well-known/oauth-protected-resource"', endpoint)
 
     async def requested(method, url, **kwargs):
@@ -179,7 +179,7 @@ async def test_github_sign_in_uses_the_configured_oauth_app(client, monkeypatch)
     monkeypatch.setenv("SATURN_GITHUB_OAUTH_CLIENT_SECRET", "secret-value")
     monkeypatch.setenv("PUBLIC_WS_URL", "https://saturn-backend-clcae2l2mq-de.a.run.app")
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         raise McpUnauthorized(
             'Bearer resource_metadata="https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp/"',
             endpoint,
@@ -226,7 +226,7 @@ async def test_github_without_an_oauth_app_asks_for_a_pasted_token(client, monke
     monkeypatch.delenv("SATURN_GITHUB_OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("SATURN_GITHUB_OAUTH_CLIENT_SECRET", raising=False)
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         raise McpUnauthorized(
             'Bearer resource_metadata="https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp/"',
             endpoint,
@@ -294,7 +294,7 @@ async def test_google_sign_in_uses_the_configured_oauth_client(client, monkeypat
     monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
     monkeypatch.setenv("PUBLIC_WS_URL", "https://saturn-backend-629072855899.asia-east1.run.app")
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         assert authorization == ""
         return [{"name": "search_threads", "description": "Search", "inputSchema": {"type": "object", "properties": {}}}]
 
@@ -320,11 +320,92 @@ async def test_google_sign_in_uses_the_configured_oauth_client(client, monkeypat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("host", "scope"),
+    [
+        ("run.googleapis.com", "https://www.googleapis.com/auth/run"),
+        ("redis.googleapis.com", "https://www.googleapis.com/auth/redis.read-write"),
+        ("sqladmin.googleapis.com", "https://www.googleapis.com/auth/cloudsql"),
+    ],
+)
+async def test_google_cloud_servers_request_their_own_scope(client, monkeypatch, host, scope):
+    monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_ID", "saturn.apps.googleusercontent.com")
+    monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+
+    async def listed(endpoint, authorization="", **_kwargs):
+        return [{"name": "list_services", "description": "List", "inputSchema": {"type": "object", "properties": {}}}]
+
+    async def requested(method, url, **kwargs):
+        if url == f"https://{host}/.well-known/oauth-protected-resource/mcp":
+            return _response(
+                200,
+                {
+                    "resource": f"https://{host}/mcp",
+                    "authorization_servers": ["https://accounts.google.com/"],
+                    "scopes_supported": [scope, "https://www.googleapis.com/auth/cloud-platform"],
+                },
+            )
+        return await _google_metadata(method, url, **kwargs)
+
+    monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth.list_remote_tools", listed)
+    monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth._request", requested)
+    started = await client.post(
+        "/mcp-servers/oauth/start",
+        json={"name": host, "endpoint": f"https://{host}/mcp", "nonce": "nonce-gcloud1"},
+    )
+    assert started.status_code == 200, started.text
+    query = parse_qs(urlparse(started.json()["authorization_url"]).query)
+    assert query["client_id"] == ["saturn.apps.googleusercontent.com"]
+    # cloud-platform is broader than the server needs, so it is never requested.
+    assert query["scope"] == [scope]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("host", "advertised", "wanted"),
+    [
+        (
+            "drivemcp.googleapis.com",
+            ["drive", "drive.readonly", "drive.file"],
+            ["drive.readonly", "drive.file"],
+        ),
+        (
+            "sheetsmcp.googleapis.com",
+            ["drive.readonly", "spreadsheets.readonly", "drive", "spreadsheets"],
+            ["spreadsheets"],
+        ),
+        # A Google host Saturn has no entry for gets nothing, even scopes another host may have.
+        ("bigquery.googleapis.com", ["gmail.readonly", "bigquery"], []),
+    ],
+)
+async def test_each_google_host_gets_only_its_own_scopes(host, advertised, wanted, monkeypatch):
+    from app.features.mcp.oauth.services import mcp_oauth
+
+    google = "https://www.googleapis.com/auth/"
+
+    async def requested(method, url, **kwargs):
+        if url == f"https://{host}/.well-known/oauth-protected-resource/mcp/v1":
+            return _response(
+                200,
+                {
+                    "resource": f"https://{host}/mcp/v1",
+                    "authorization_servers": ["https://accounts.google.com/"],
+                    "scopes_supported": [google + item for item in advertised],
+                },
+            )
+        return await _google_metadata(method, url, **kwargs)
+
+    monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth._request", requested)
+    found = await mcp_oauth.discover(f"https://{host}/mcp/v1", "")
+    assert found.scope.split() == [google + item for item in wanted]
+
+
+@pytest.mark.asyncio
 async def test_google_without_an_oauth_client_asks_for_a_pasted_token(client, monkeypatch):
     monkeypatch.delenv("SATURN_GOOGLE_OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "search_threads", "description": "Search", "inputSchema": {"type": "object", "properties": {}}}]
 
     monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth.list_remote_tools", listed)
@@ -378,7 +459,7 @@ async def test_authorization_server_responses_are_capped(monkeypatch):
 
 
 def _notion_flow(monkeypatch, exchanged: list):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         if authorization != "access-1":
             raise McpUnauthorized(
                 'Bearer resource_metadata="https://mcp.notion.com/.well-known/oauth-protected-resource"',

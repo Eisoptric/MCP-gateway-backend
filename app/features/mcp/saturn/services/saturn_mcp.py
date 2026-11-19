@@ -1125,6 +1125,7 @@ class SaturnMcp:
         anything is sent raises NotSent, so the approval is kept for a later attempt."""
         from app.features.execution.approvals.services.claimed_call import NotSent
         from app.features.mcp.oauth.services.mcp_oauth import mcp_oauth
+        from app.features.mcp.servers.services.mcp_hosts import organization_hosts
         from app.features.mcp.servers.services.mcp_remote import McpUnauthorized
 
         server = tool.mcp_server
@@ -1137,20 +1138,22 @@ class SaturnMcp:
                 raise NotSent() from exc
             raise
         upstream = tool.upstream_name or tool.name
+        # Read on every call, so removing a host stops calls to it at once.
+        approved = await organization_hosts(session, tool.organization_id)
         # End the transaction before waiting on the upstream, which can take a minute. It holds a
         # pooled connection and this organization's audit counter row, so a slow tool would stall
         # the organization's other calls and a few of them would use up the pool for everyone.
         # What is committed here is the record that the call was requested and a refreshed token.
         await session.commit()
         try:
-            return await call_remote_tool(endpoint, upstream, arguments, secret)
+            return await call_remote_tool(endpoint, upstream, arguments, secret, extra_hosts=approved)
         except McpUnauthorized:
             secret = await mcp_oauth.refresh_after_reject(session, server, secret)
             if not secret:
                 raise HTTPException(status.HTTP_502_BAD_GATEWAY, "MCP server returned HTTP 401") from None
             await session.commit()
             try:
-                return await call_remote_tool(endpoint, upstream, arguments, secret)
+                return await call_remote_tool(endpoint, upstream, arguments, secret, extra_hosts=approved)
             except McpUnauthorized as exc:
                 raise HTTPException(status.HTTP_502_BAD_GATEWAY, "MCP server returned HTTP 401") from exc
 

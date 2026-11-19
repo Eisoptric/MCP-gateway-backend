@@ -512,7 +512,7 @@ async def test_oversized_fields_are_400_not_500(client):
 
 
 async def test_activation_names_tools_whose_descriptions_the_model_could_not_trust(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [
             {"name": "notes.read", "description": "Read a note.", "inputSchema": {"type": "object", "properties": {}}},
             {
@@ -566,7 +566,7 @@ def test_tool_names_are_cleaned_before_the_policy_model_reads_them():
 
 
 async def test_a_condition_on_an_unknown_argument_is_reported(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [
             {
                 "name": "pay.send",

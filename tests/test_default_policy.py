@@ -69,7 +69,7 @@ def test_upstream_annotations_set_permissions():
 async def test_connecting_a_server_holds_unannotated_tools_for_approval(client, monkeypatch):
     from app.features.mcp.servers.services.mcp_remote import permissions_for
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [
             {"name": "notes.read", "description": "", "inputSchema": {}, "permissions": permissions_for({"readOnlyHint": True})},
             {"name": "notes.transfer", "description": "", "inputSchema": {}, "permissions": permissions_for({})},

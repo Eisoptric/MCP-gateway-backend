@@ -29,12 +29,12 @@ async def _people(client):
 async def _quorum_tool(client, monkeypatch, *, expires_minutes=None, allow_requester=False):
     calls = {"n": 0}
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [
             {"name": "pay.send", "description": "Send", "inputSchema": {"type": "object", "properties": {}}},
         ]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         calls["n"] += 1
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
 
@@ -250,7 +250,7 @@ async def test_expired_and_uncertain_upstream_do_not_retry(client, monkeypatch):
 
     from app.features.mcp.servers.services.mcp_remote import McpTimeout
 
-    async def timeout(endpoint, name, arguments, authorization=""):
+    async def timeout(endpoint, name, arguments, authorization="", **_kwargs):
         # What mcp_remote raises when tools/call was sent but no answer came back.
         calls["n"] += 1
         raise McpTimeout("MCP server did not answer (ReadTimeout)")
@@ -327,10 +327,10 @@ async def test_groups_work_on_every_plan_and_stay_in_their_org(client):
 async def test_payment_needs_finance_and_admin(client, monkeypatch):
     calls = {"n": 0}
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "pay.send", "description": "Send", "inputSchema": {"type": "object", "properties": {}}}]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         calls["n"] += 1
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
 

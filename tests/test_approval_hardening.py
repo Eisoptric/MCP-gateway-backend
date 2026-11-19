@@ -32,10 +32,10 @@ async def _close(generator):
 async def _payments(client, monkeypatch, calls, seen, policy_body=None):
     """Payments tool behind approval. policy_body(groups) adds an approval policy rule."""
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "pay.send", "description": "Send", "inputSchema": {"type": "object", "properties": {}}}]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         calls["n"] += 1
         seen.append(arguments)
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
@@ -94,7 +94,7 @@ async def test_quorum_without_payload_key_sends_the_approved_arguments(client, m
     seen = []
     calls, people, access, agent_id, _rule, _group = await _quorum_tool(client, monkeypatch)
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         calls["n"] += 1
         seen.append(arguments)
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
@@ -132,7 +132,7 @@ async def test_legacy_digest_only_action_never_sends_the_digest_upstream(client,
     seen = []
     calls, people, access, agent_id, _rule, _group = await _quorum_tool(client, monkeypatch)
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         calls["n"] += 1
         seen.append(arguments)
         return {"content": [{"type": "text", "text": "ok"}], "echo": arguments}
@@ -348,7 +348,7 @@ async def test_resubmit_timeout_is_uncertain_not_claimed(client, monkeypatch):
     people, _groups, access, agent_id = await _payments(client, monkeypatch, calls, seen)
     from app.features.mcp.servers.services.mcp_remote import McpTimeout
 
-    async def slow(endpoint, name, arguments, authorization=""):
+    async def slow(endpoint, name, arguments, authorization="", **_kwargs):
         calls["n"] += 1
         raise McpTimeout("MCP server did not answer (ReadTimeout)")
 
@@ -698,7 +698,7 @@ async def test_requester_needs_a_second_person_when_one_exists(client, monkeypat
 
 
 async def test_requester_alone_in_the_org_can_still_approve(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "pay.send", "description": "Send", "inputSchema": {"type": "object", "properties": {}}}]
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)

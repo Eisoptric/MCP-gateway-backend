@@ -1,14 +1,31 @@
 import logging
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 
 from app.core.public_origin import public_origin
 from app.features.identity.auth.controllers.session_cookie import cookie_secure
-from app.features.identity.auth.controllers.deps import AgentsRead, CurrentUser, SaturnCloud, SessionDep, TeamWrite
+from app.core.enums import AuditEvent
+from app.features.execution.activity.services.change_log import record_change
+from app.features.identity.auth.controllers.deps import AgentsRead, CurrentUser, SaturnCloud, SessionDep, TeamRead, TeamWrite
+from app.features.identity.auth.controllers.session_cookie import COOKIE_NAME
+from app.features.mcp.servers.services import mcp_hosts
+from app.features.mcp.servers.services.mcp_endpoint import ALLOWED_MCP_HOSTS
 from app.models import McpServer
-from app.schemas import McpConnect, McpOAuthAttemptRead, McpOAuthBegin, McpOAuthStart, McpServerRead, McpToolRead
+from app.schemas import (
+    McpAllowedHostCreate,
+    McpAllowedHostRead,
+    McpAllowedHostsRead,
+    McpConnect,
+    McpOAuthAttemptRead,
+    McpOAuthBegin,
+    McpOAuthStart,
+    McpServerRead,
+    McpToolRead,
+)
 from app.features.organization.org.services.mapping_service import mapping_service
 from app.features.mcp.servers.services.mcp_connect import mcp_connect_service
 from app.features.mcp.oauth.services.mcp_oauth import (
@@ -57,6 +74,69 @@ async def list_mcp_servers(session: SessionDep, user: CurrentUser, _access: Agen
         status_name = await reconnect_status(session, server.credential_id, server.organization_id)
         listed.append(serialize_mcp_server(server, secret_status=status_name))
     return listed
+
+
+_bearer = HTTPBearer(auto_error=False)
+
+
+async def _hosts_read(session, organization_id: str) -> McpAllowedHostsRead:
+    rows = await mcp_hosts.list_hosts(session, organization_id)
+    endpoints = await session.scalars(select(McpServer.endpoint).where(McpServer.organization_id == organization_id))
+    in_use: dict[str, int] = {}
+    for endpoint in endpoints:
+        host = mcp_hosts.endpoint_host(endpoint)
+        in_use[host] = in_use.get(host, 0) + 1
+    return McpAllowedHostsRead(
+        hosts=[
+            McpAllowedHostRead(
+                id=row.id,
+                host=row.host,
+                created_by_user_id=row.created_by_user_id,
+                created_at=row.created_at,
+                servers=in_use.get(row.host, 0),
+            )
+            for row in rows
+        ],
+        builtin=sorted(ALLOWED_MCP_HOSTS),
+        limit=mcp_hosts.MAX_HOSTS,
+    )
+
+
+@router.get("/allowed-hosts", response_model=McpAllowedHostsRead)
+async def list_allowed_hosts(session: SessionDep, user: CurrentUser, _access: TeamRead):
+    return await _hosts_read(session, user.organization_id)
+
+
+@router.post("/allowed-hosts", response_model=McpAllowedHostRead, status_code=201)
+async def add_allowed_host(
+    body: McpAllowedHostCreate,
+    request: Request,
+    session: SessionDep,
+    user: CurrentUser,
+    _access: TeamWrite,
+    _cloud: SaturnCloud,
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+):
+    from app.features.identity.auth.services.auth_service import auth_service
+
+    # Approving a host widens where Saturn sends requests, credentials included, for everyone in
+    # the organization. A stolen session alone must not be enough.
+    token = creds.credentials if creds is not None and creds.scheme.lower() == "bearer" else request.cookies.get(COOKIE_NAME, "")
+    await auth_service.require_recent_auth(session, token)
+    row = await mcp_hosts.add_host(session, user.organization_id, user.id, body.host)
+    await record_change(session, user, AuditEvent.MCP_HOST_ADDED, result=row.host, host_id=row.id)
+    return McpAllowedHostRead(
+        id=row.id, host=row.host, created_by_user_id=row.created_by_user_id, created_at=row.created_at
+    )
+
+
+@router.delete("/allowed-hosts/{host_id}", status_code=204)
+async def remove_allowed_host(host_id: str, session: SessionDep, user: CurrentUser, _access: TeamWrite):
+    # Removing only narrows what Saturn reaches, so it needs no fresh sign-in. Connections on the
+    # host stay listed and fail on their next call until the host is approved again.
+    row = await mcp_hosts.remove_host(session, user.organization_id, host_id)
+    await record_change(session, user, AuditEvent.MCP_HOST_REMOVED, result=row.host, host_id=row.id)
+    return Response(status_code=204)
 
 
 @router.post("/oauth/start", response_model=McpOAuthStart)

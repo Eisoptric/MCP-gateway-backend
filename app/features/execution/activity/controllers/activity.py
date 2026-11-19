@@ -169,6 +169,8 @@ CHANGE_EVENTS = (
     AuditEvent.INVITE_REVOKED.value,
     AuditEvent.AGENT_DELETED.value,
     AuditEvent.MCP_SERVER_DELETED.value,
+    AuditEvent.MCP_HOST_ADDED.value,
+    AuditEvent.MCP_HOST_REMOVED.value,
     AuditEvent.GROUP_UPDATED.value,
 )
 

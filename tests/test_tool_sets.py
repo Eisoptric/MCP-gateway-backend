@@ -3,13 +3,13 @@ from tests.policy_helpers import activate_created
 
 
 async def test_each_agent_sees_only_its_own_tool_set(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [
             {"name": "repo.read", "description": "Read", "inputSchema": {"type": "object", "properties": {}}},
             {"name": "repo.delete", "description": "Delete", "inputSchema": {"type": "object", "properties": {}}},
         ]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         return {"content": [{"type": "text", "text": "ok"}], "tool": name}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
@@ -78,7 +78,7 @@ async def test_each_agent_sees_only_its_own_tool_set(client, monkeypatch):
 
 
 async def test_mapped_tool_set_is_what_saturn_mcp_exposes(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         assert endpoint == "https://api.githubcopilot.com/mcp"
         assert authorization == "token-1"
         return [
@@ -86,7 +86,7 @@ async def test_mapped_tool_set_is_what_saturn_mcp_exposes(client, monkeypatch):
             {"name": "repo.delete", "description": "Delete a repo", "inputSchema": {"type": "object", "properties": {}}},
         ]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         assert endpoint == "https://api.githubcopilot.com/mcp"
         assert authorization == "token-1"
         assert name in {"repo.read", "repo.delete"}
@@ -241,10 +241,10 @@ async def test_mapped_tool_set_is_what_saturn_mcp_exposes(client, monkeypatch):
 async def test_agent_resubmits_by_saturn_run_id_argument(client, monkeypatch):
     seen = {}
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "repo.delete", "description": "Delete", "inputSchema": {"type": "object", "properties": {"repo": {"type": "string"}}}}]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         seen["arguments"] = arguments
         return {"content": [{"type": "text", "text": "ok"}], "echo": arguments}
 

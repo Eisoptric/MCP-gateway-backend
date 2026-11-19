@@ -104,3 +104,5 @@ class AuditEvent(str, Enum):
     INVITE_REVOKED = "invite_revoked"
     AGENT_DELETED = "agent_deleted"
     MCP_SERVER_DELETED = "mcp_server_deleted"
+    MCP_HOST_ADDED = "mcp_host_added"
+    MCP_HOST_REMOVED = "mcp_host_removed"

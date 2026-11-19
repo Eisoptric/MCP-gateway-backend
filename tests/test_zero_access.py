@@ -111,10 +111,10 @@ async def test_gateway_stores_ciphertext_and_admin_cannot_read_it(client, monkey
     )
     assert rejected.status_code == 422
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "repo.read", "description": "Read", "inputSchema": {"type": "object", "properties": {"repo": {"type": "string"}}}}]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         return {"content": [{"type": "text", "text": "ok"}], "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
@@ -162,10 +162,10 @@ async def test_rotation_rewraps_the_dek_and_leaves_ciphertext_unchanged(client, 
     )
     assert created.status_code == 200, created.text
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "repo.read", "description": "Read", "inputSchema": {"type": "object"}}]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         return {"content": [{"type": "text", "text": "ok"}]}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
