@@ -622,3 +622,60 @@ async def test_kept_sessions_are_bounded(monkeypatch):
     await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "a-token")
     await mcp_remote.call_remote_tool("https://mcp.notion.com/mcp", "t", {}, "b-token")
     assert upstream.methods() == ["tools/call", "initialize", "tools/call"]
+
+
+@pytest.mark.parametrize(
+    ("body", "says"),
+    [
+        # Google: the MCP service is off in the OAuth client's project. Its text names that project.
+        (
+            {"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "Gmail MCP API has not been used in project 629072855899 before or it is disabled.", "details": [{"reason": "SERVICE_DISABLED"}]}},
+            "MCP server returned HTTP 403: the MCP service is not enabled in the Google Cloud project of this sign-in",
+        ),
+        (
+            {"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "Request had insufficient authentication scopes.", "details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}},
+            "MCP server returned HTTP 403: the sign-in did not grant the access this server needs; sign in again and allow every permission",
+        ),
+        # Any other Google or JSON-RPC error: its own message.
+        ({"error": {"code": 403, "message": "The caller does not have permission"}}, "MCP server returned HTTP 403: The caller does not have permission"),
+        ({"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": "Workspace not allowed"}}, "MCP server returned HTTP 403: Workspace not allowed"),
+        # Plain text, with the credential the request carried removed.
+        ("forbidden for token tok-abcdef123456", "MCP server returned HTTP 403: forbidden for token ***"),
+        # An HTML error page says nothing useful.
+        ("<html><body>403 Forbidden</body></html>", "MCP server returned HTTP 403"),
+        ("", "MCP server returned HTTP 403"),
+    ],
+)
+def test_a_refusal_says_why_without_secrets_or_the_operators_project(body, says, caplog):
+    import httpx
+    from fastapi import HTTPException
+
+    from app.features.mcp.servers.services.mcp_remote import _raise_for_status
+
+    request = httpx.Request("POST", "https://gmailmcp.googleapis.com/mcp/v1")
+    response = (
+        httpx.Response(403, json=body, request=request)
+        if isinstance(body, dict)
+        else httpx.Response(403, text=body, request=request)
+    )
+    with caplog.at_level("WARNING"), pytest.raises(HTTPException) as refused:
+        _raise_for_status(response, "https://gmailmcp.googleapis.com/mcp/v1", secret="Bearer tok-abcdef123456")
+    assert refused.value.detail == says
+    assert "629072855899" not in refused.value.detail
+    assert "tok-abcdef123456" not in refused.value.detail
+    # The log keeps the full answer for the operator, still without the credential.
+    assert "HTTP 403" in caplog.text
+    assert "tok-abcdef123456" not in caplog.text
+
+
+def test_a_long_reason_is_cut_short():
+    import httpx
+    from fastapi import HTTPException
+
+    from app.features.mcp.servers.services.mcp_remote import _raise_for_status
+
+    request = httpx.Request("POST", "https://mcp.example-tools.dev/mcp")
+    response = httpx.Response(403, json={"error": {"message": "x" * 5000}}, request=request)
+    with pytest.raises(HTTPException) as refused:
+        _raise_for_status(response, "https://mcp.example-tools.dev/mcp")
+    assert len(refused.value.detail) < 260
