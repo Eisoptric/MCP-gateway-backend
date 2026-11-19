@@ -6,7 +6,7 @@ Notable changes to Saturn Backend. The format follows [Keep a Changelog](https:/
 
 ### Added
 
-- `mcp.cloudflare.com`, `run.googleapis.com` and `redis.googleapis.com` are approved MCP hosts. Google sign-in may now ask for `auth/run` and `auth/redis.read-write`, the one scope each of those servers advertises; `cloud-platform` is still never requested.
+- `mcp.cloudflare.com`, `run.googleapis.com`, `redis.googleapis.com` and `sqladmin.googleapis.com` (Cloud SQL) are approved MCP hosts. Google sign-in may now ask for `auth/run`, `auth/redis.read-write` and `auth/cloudsql`, the one scope each of those servers advertises; `cloud-platform` is still never requested.
 
 ### Changed
 

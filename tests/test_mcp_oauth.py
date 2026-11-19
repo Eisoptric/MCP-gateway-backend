@@ -325,6 +325,7 @@ async def test_google_sign_in_uses_the_configured_oauth_client(client, monkeypat
     [
         ("run.googleapis.com", "https://www.googleapis.com/auth/run"),
         ("redis.googleapis.com", "https://www.googleapis.com/auth/redis.read-write"),
+        ("sqladmin.googleapis.com", "https://www.googleapis.com/auth/cloudsql"),
     ],
 )
 async def test_google_cloud_servers_request_their_own_scope(client, monkeypatch, host, scope):
