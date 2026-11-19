@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import hashlib
 import itertools
 import json
+import logging
 from http.cookiejar import CookieJar, DefaultCookiePolicy
 import re
 import time
@@ -183,7 +184,50 @@ def _unauthorized(response: httpx.Response, endpoint: str) -> None:
         raise McpUnauthorized(response.headers.get("www-authenticate", ""), endpoint)
 
 
-def _raise_for_status(response: httpx.Response, endpoint: str, *, call: bool = False) -> None:
+logger = logging.getLogger(__name__)
+_REASON_LIMIT = 200
+
+
+def _body_text(response: httpx.Response) -> str:
+    try:
+        return response.text or ""
+    except Exception:  # noqa: BLE001 - a body that was not read or cannot be decoded is empty here
+        return ""
+
+
+def _refusal_reason(response: httpx.Response, *secrets: str) -> str:
+    """A short, credential-free reason from a refusal body, or "".
+
+    Google APIs answer `{"error": {"message": ..., "status": ...}}`; MCP servers answer a JSON-RPC
+    error; others send text. Two Google refusals get a fixed sentence instead of their own text:
+    theirs names the Google Cloud project, which is the operator's, not the person's.
+    """
+    text = _body_text(response)
+    lowered = text.lower()
+    if "service_disabled" in lowered or "has not been used in project" in lowered:
+        return "the MCP service is not enabled in the Google Cloud project of this sign-in"
+    if "access_token_scope_insufficient" in lowered or "insufficient authentication scopes" in lowered:
+        return "the sign-in did not grant the access this server needs; sign in again and allow every permission"
+    message = ""
+    try:
+        body = json.loads(text)
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict):
+            message = str(error.get("message") or error.get("status") or "")
+        elif isinstance(error, str):
+            message = error
+        elif isinstance(body.get("message"), str):
+            message = body["message"]
+    elif not text.lstrip().startswith("<"):
+        message = text
+    message = " ".join(redact(message, *secrets).split())
+    return message[:_REASON_LIMIT]
+
+
+def _raise_for_status(response: httpx.Response, endpoint: str, *, call: bool = False, secret: str = "") -> None:
     _unauthorized(response, endpoint)
     if call and response.status_code in {504, 524}:
         raise McpTimeout(f"MCP server returned HTTP {response.status_code}")
@@ -191,7 +235,15 @@ def _raise_for_status(response: httpx.Response, endpoint: str, *, call: bool = F
         # A server error after it received the call does not say whether the call ran.
         raise McpOutcomeUnknown(f"MCP server returned HTTP {response.status_code}")
     if response.status_code >= 400:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"MCP server returned HTTP {response.status_code}")
+        reason = _refusal_reason(response, secret)
+        logger.warning(
+            "MCP server refused: HTTP %s from %s: %s",
+            response.status_code,
+            redact_url(endpoint),
+            redact(_body_text(response)[:500], secret),
+        )
+        detail = f"MCP server returned HTTP {response.status_code}"
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"{detail}: {reason}" if reason else detail)
 
 
 # Errors raised before the request reaches the server. Any other failure after tools/call was sent is uncertain.
@@ -433,7 +485,7 @@ async def _initialize(
     init = await _rpc(
         client, request_url, headers, "initialize", _INITIALIZE, next(_request_ids), host, cookies=cookies, timeout=timeout
     )
-    _raise_for_status(init, url)
+    _raise_for_status(init, url, secret=header_auth)
     # As before, a call goes ahead whatever initialize's body says; only a clean result is kept.
     try:
         body = _payload(init)
@@ -537,7 +589,7 @@ async def list_remote_tools(
 ) -> list[dict[str, Any]]:
     """`extra_hosts`: the hosts the organization's admins approved (mcp_hosts.organization_hosts)."""
     url, listed = await _session_request(endpoint, authorization, "tools/list", {}, timeout=20, extra_hosts=extra_hosts)
-    _raise_for_status(listed, url)
+    _raise_for_status(listed, url, secret=authorization)
     tools = _tools(_payload(listed))
     if not tools:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "MCP server did not list any tools")
@@ -569,7 +621,7 @@ async def call_remote_tool(
         timeout=60,
         extra_hosts=extra_hosts,
     )
-    _raise_for_status(called, url, call=True)
+    _raise_for_status(called, url, call=True, secret=authorization)
     body = _payload(called, call=True)
     if body.get("error"):
         message = body["error"].get("message") if isinstance(body["error"], dict) else "MCP tools/call failed"

@@ -545,6 +545,14 @@ class MfaService:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Sign-in challenge is incorrect or expired")
         return record
 
+    async def challenge_open(self, session: AsyncSession, token: str) -> bool:
+        """Whether a sign-in challenge can still take a code: not used, expired or out of guesses."""
+        try:
+            await self._live_challenge(session, token)
+        except HTTPException:
+            return False
+        return True
+
     async def _user(self, session: AsyncSession, user_id: str) -> User | None:
         result = await session.execute(
             select(User).options(selectinload(User.organization)).where(User.id == user_id)

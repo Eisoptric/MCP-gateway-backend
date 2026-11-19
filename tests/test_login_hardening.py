@@ -183,3 +183,62 @@ def test_cloud_run_never_falls_back_to_localhost_origins(monkeypatch):
     assert main._cors_origins() == ["http://localhost:3000", "http://localhost:3001"]
     monkeypatch.setenv("K_SERVICE", "saturn-backend")
     assert main._cors_origins() == []
+
+
+async def _oauth_email_code_page(client, monkeypatch):
+    """Turn on emailed codes for rick, then start an agent sign-in up to the code page."""
+    import re
+
+    from app.features.identity.oauth.services.oauth_service import pkce_s256
+
+    sent = {}
+
+    async def capture(_email, code, _locale=None):
+        sent["code"] = code
+
+    monkeypatch.setattr("app.features.identity.auth.controllers.auth.send_login_code", capture)
+    monkeypatch.setattr("app.features.identity.oauth.controllers.oauth.send_login_code", capture)
+    assert (await client.post("/auth/mfa/email/code")).status_code == 204
+    assert (await client.post("/auth/mfa/email", json={"code": sent["code"]})).status_code == 204
+    client.headers.pop("Authorization", None)
+    registered = await client.post("/oauth/register", json={"client_name": "Phone", "redirect_uris": [_FORM["redirect_uri"]]})
+    query = {**_FORM, "client_id": registered.json()["client_id"], "code_challenge": pkce_s256("c" * 43)}
+    await client.get("/oauth/authorize", params=query)
+    page = await client.post("/oauth/login", data={**query, "email": "rick@saturn.ai", "password": "saturn"}, follow_redirects=False)
+    assert page.status_code == 200 and 'name="method" value="email"' in page.text, page.text
+    challenge = re.search(r'name="challenge" value="([^"]+)"', page.text).group(1)
+    return query, challenge, sent
+
+
+async def test_a_mistyped_code_on_the_agent_sign_in_can_be_retyped(client, monkeypatch):
+    query, challenge, sent = await _oauth_email_code_page(client, monkeypatch)
+    wrong = "111111" if sent["code"] == "000000" else "000000"
+    form = {**query, "challenge": challenge, "method": "email"}
+
+    typo = await client.post("/oauth/login/code", data={**form, "code": wrong}, follow_redirects=False)
+    assert typo.status_code == 400
+    # The same form again, with the same challenge and a message: no new code needed.
+    assert "That code is incorrect. Check it and try again." in typo.text
+    assert f'name="challenge" value="{challenge}"' in typo.text
+    assert 'name="code"' in typo.text
+
+    right = await client.post("/oauth/login/code", data={**form, "code": sent["code"]}, follow_redirects=False)
+    assert right.status_code == 303, right.text
+
+
+async def test_the_agent_sign_in_ends_once_a_code_runs_out_of_guesses(client, monkeypatch):
+    from app.features.identity.auth.services.mfa import MAX_ATTEMPTS
+
+    query, challenge, sent = await _oauth_email_code_page(client, monkeypatch)
+    wrong = "111111" if sent["code"] == "000000" else "000000"
+    form = {**query, "challenge": challenge, "method": "email", "code": wrong}
+    for _ in range(MAX_ATTEMPTS - 1):
+        again = await client.post("/oauth/login/code", data=form, follow_redirects=False)
+        assert 'name="code"' in again.text
+    last = await client.post("/oauth/login/code", data=form, follow_redirects=False)
+    assert last.status_code == 400
+    assert "Start again from the agent to get a new code" in last.text
+    assert 'name="code"' not in last.text
+    # Even the right code is refused now.
+    late = await client.post("/oauth/login/code", data={**form, "code": sent["code"]}, follow_redirects=False)
+    assert late.status_code == 400
