@@ -226,7 +226,9 @@ curl -s -X POST localhost:8000/mcp-servers \
   -d '{"name":"Context7","endpoint":"https://mcp.context7.com/mcp"}'
 ```
 
-連接、重新整理與移除伺服器需要 `team.write`。端點必須是 443 埠的 HTTPS、URL 中不含帳密、主機在 `ALLOWED_MCP_HOSTS`（`app/features/mcp/servers/services/mcp_endpoint.py`）之中，而且解析出的每個位址都必須是公開位址。要求 OAuth 的伺服器以 `POST /mcp-servers/oauth/start` 連接：Saturn 會探索它的授權伺服器，能註冊時就註冊用戶端，最後在 `${PUBLIC_WS_URL}/mcp-servers/oauth/callback` 完成。GitHub（`api.githubcopilot.com`）與 Google（`*.googleapis.com`）使用預設的 OAuth App，來自 `SATURN_GITHUB_OAUTH_CLIENT_ID` / `_SECRET` 與 `SATURN_GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`。伺服器 metadata 指向的每個 URL，都要通過相同的 HTTPS 與公開位址檢查。token 過期或被伺服器拒絕時會自動更新。
+連接、重新整理與移除伺服器需要 `team.write`。端點必須是 443 埠的 HTTPS、URL 中不含帳密、主機必須已核准，而且解析出的每個位址都必須是公開位址。已核准的主機有兩種：`ALLOWED_MCP_HOSTS`（`app/features/mcp/servers/services/mcp_endpoint.py`）列出的市集主機，對所有組織都核准；以及組織管理員自己核准的主機。要求 OAuth 的伺服器以 `POST /mcp-servers/oauth/start` 連接：Saturn 會探索它的授權伺服器，能註冊時就註冊用戶端，最後在 `${PUBLIC_WS_URL}/mcp-servers/oauth/callback` 完成。GitHub（`api.githubcopilot.com`）與 Google（`*.googleapis.com`）使用預設的 OAuth App，來自 `SATURN_GITHUB_OAUTH_CLIENT_ID` / `_SECRET` 與 `SATURN_GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`。伺服器 metadata 指向的每個 URL，都要通過相同的 HTTPS 與公開位址檢查。token 過期或被伺服器拒絕時會自動更新。
+
+管理員（`team.write`）在 `/mcp-servers/allowed-hosts` 管理組織的主機。`GET` 列出它們、每個主機上的連線數，以及 Saturn 自己的清單（`team.read` 即可）。`POST {"host": "mcp.example.com"}` 接受主機名稱或 HTTPS 網址；需要 10 分鐘內登入過，並拒絕 IP 位址、萬用字元、內部名稱（`localhost`、`.internal`、`.local` 等），以及解析到非公開位址的名稱。每個組織最多核准 50 個主機。`DELETE /mcp-servers/allowed-hosts/{id}` 移除主機。每次檢查都會重新讀取組織的清單，所以移除後，該主機上的連接、重新整理與工具呼叫會立刻停止。新增與移除主機都會記錄在變更紀錄（`mcp_host_added`、`mcp_host_removed`）。
 
 探索到的工具會出現在 `/tools`。用 `/tool-sets` 把它們分組，再把工具集指派給各個 Agent。
 

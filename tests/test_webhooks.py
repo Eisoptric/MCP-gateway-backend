@@ -71,10 +71,10 @@ async def _endpoint(client, monkeypatch, responses=None):
 async def _deferred(client, monkeypatch, *, expires_minutes=None, resubmit_minutes=None):
     calls = {"n": 0}
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "pay.send", "description": "Send", "inputSchema": {"type": "object", "properties": {}}}]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         calls["n"] += 1
         return {"content": [{"type": "text", "text": "ok"}], "echo": arguments}
 

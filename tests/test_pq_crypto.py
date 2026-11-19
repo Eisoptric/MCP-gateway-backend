@@ -61,7 +61,7 @@ def test_missing_kms_key_refuses_to_start(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_connected_mcp_keeps_the_token_out_of_the_server_row(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         assert authorization == "access-1"
         return [{"name": "docs", "description": "Docs", "inputSchema": {"type": "object", "properties": {}}}]
 

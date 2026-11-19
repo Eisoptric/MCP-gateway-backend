@@ -64,7 +64,7 @@ def test_finance_marketplace_endpoints_still_reject_private_dns(endpoint, monkey
 async def test_changing_the_endpoint_does_not_forward_the_saved_token(client, monkeypatch):
     seen: list[tuple[str, str]] = []
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         seen.append((endpoint, authorization))
         return [{"name": "repo.read", "description": "Read", "inputSchema": {"type": "object", "properties": {}}}]
 
@@ -107,7 +107,7 @@ def test_endpoint_must_use_port_443():
 async def test_a_key_in_the_endpoint_url_moves_to_the_vault_and_is_never_shown(client, monkeypatch):
     seen: list[tuple[str, str]] = []
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         seen.append((endpoint, authorization))
         return [{"name": "filings.search", "description": "Search", "inputSchema": {"type": "object", "properties": {}}}]
 

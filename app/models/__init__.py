@@ -26,6 +26,7 @@ from app.features.organization.org.models.employee import Employee
 from app.features.organization.org.models.group import Group, GroupMember
 from app.features.organization.org.models.invitation import Invitation
 from app.features.mcp.oauth.models.mcp_oauth import McpOAuthPending
+from app.features.mcp.servers.models.mcp_allowed_host import McpAllowedHost
 from app.features.mcp.servers.models.mcp_server import McpServer
 from app.features.identity.oauth.models.oauth import OAuthAccess, OAuthClient, OAuthGrant
 from app.features.credentials.vault.models.secret_vault import SecretVault
@@ -65,6 +66,7 @@ __all__ = [
     "GroupMember",
     "Invitation",
     "LoginChallenge",
+    "McpAllowedHost",
     "McpOAuthPending",
     "NoticeDelivery",
     "McpServer",

@@ -45,10 +45,10 @@ def test_only_policy_fields_stay_visible():
 
 
 async def test_activity_and_admin_do_not_return_sealed_tool_content(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "repo.read", "description": "Read", "inputSchema": {"type": "object", "properties": {"repo": {"type": "string"}}}}]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         return {"content": [{"type": "text", "text": "ok"}], "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)

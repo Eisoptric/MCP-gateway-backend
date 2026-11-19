@@ -138,6 +138,27 @@ class McpConnect(BaseModel):
     authorization: str | None = Field(default=None, max_length=SECRET_LEN)
 
 
+class McpAllowedHostCreate(BaseModel):
+    # A bare host name or an HTTPS URL, whose host is used.
+    host: str = Field(max_length=URL_LEN)
+
+
+class McpAllowedHostRead(BaseModel):
+    id: str
+    host: str
+    created_by_user_id: str
+    created_at: datetime
+    # Connections in this organization on this host. They stop working when the host is removed.
+    servers: int = 0
+
+
+class McpAllowedHostsRead(BaseModel):
+    hosts: list[McpAllowedHostRead]
+    # Approved by Saturn for every organization.
+    builtin: list[str]
+    limit: int
+
+
 class McpOAuthBegin(BaseModel):
     name: str = Field(max_length=NAME_LEN)
     endpoint: str = Field(max_length=URL_LEN)

@@ -13,7 +13,7 @@ def _response(status_code: int, body: dict) -> httpx.Response:
 @pytest.mark.asyncio
 async def test_marketplace_connect_opens_provider_consent_and_stores_the_token(client, monkeypatch):
     monkeypatch.delenv("PUBLIC_WS_URL", raising=False)
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         assert endpoint == "https://mcp.notion.com/mcp"
         if authorization != "access-1":
             raise McpUnauthorized(
@@ -88,7 +88,7 @@ async def test_marketplace_connect_opens_provider_consent_and_stores_the_token(c
 
 @pytest.mark.asyncio
 async def test_marketplace_connects_without_a_popup_when_the_mcp_is_public(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "docs", "description": "Docs", "inputSchema": {"type": "object", "properties": {}}}]
 
     monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth.list_remote_tools", listed)
@@ -107,7 +107,7 @@ async def test_marketplace_connects_without_a_popup_when_the_mcp_is_public(clien
 
 @pytest.mark.asyncio
 async def test_provider_denial_does_not_store_a_token(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         raise McpUnauthorized('Bearer resource_metadata="https://mcp.notion.com/.well-known/oauth-protected-resource"', endpoint)
 
     async def requested(method, url, **kwargs):
@@ -179,7 +179,7 @@ async def test_github_sign_in_uses_the_configured_oauth_app(client, monkeypatch)
     monkeypatch.setenv("SATURN_GITHUB_OAUTH_CLIENT_SECRET", "secret-value")
     monkeypatch.setenv("PUBLIC_WS_URL", "https://saturn-backend-clcae2l2mq-de.a.run.app")
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         raise McpUnauthorized(
             'Bearer resource_metadata="https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp/"',
             endpoint,
@@ -226,7 +226,7 @@ async def test_github_without_an_oauth_app_asks_for_a_pasted_token(client, monke
     monkeypatch.delenv("SATURN_GITHUB_OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("SATURN_GITHUB_OAUTH_CLIENT_SECRET", raising=False)
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         raise McpUnauthorized(
             'Bearer resource_metadata="https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp/"',
             endpoint,
@@ -294,7 +294,7 @@ async def test_google_sign_in_uses_the_configured_oauth_client(client, monkeypat
     monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
     monkeypatch.setenv("PUBLIC_WS_URL", "https://saturn-backend-629072855899.asia-east1.run.app")
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         assert authorization == ""
         return [{"name": "search_threads", "description": "Search", "inputSchema": {"type": "object", "properties": {}}}]
 
@@ -332,7 +332,7 @@ async def test_google_cloud_servers_request_their_own_scope(client, monkeypatch,
     monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_ID", "saturn.apps.googleusercontent.com")
     monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "list_services", "description": "List", "inputSchema": {"type": "object", "properties": {}}}]
 
     async def requested(method, url, **kwargs):
@@ -365,7 +365,7 @@ async def test_google_without_an_oauth_client_asks_for_a_pasted_token(client, mo
     monkeypatch.delenv("SATURN_GOOGLE_OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
 
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "search_threads", "description": "Search", "inputSchema": {"type": "object", "properties": {}}}]
 
     monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth.list_remote_tools", listed)
@@ -419,7 +419,7 @@ async def test_authorization_server_responses_are_capped(monkeypatch):
 
 
 def _notion_flow(monkeypatch, exchanged: list):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         if authorization != "access-1":
             raise McpUnauthorized(
                 'Bearer resource_metadata="https://mcp.notion.com/.well-known/oauth-protected-resource"',

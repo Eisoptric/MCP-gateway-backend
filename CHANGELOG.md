@@ -6,6 +6,9 @@ Notable changes to Saturn Backend. The format follows [Keep a Changelog](https:/
 
 ### Added
 
+- Organization admins approve their own MCP hosts at `/mcp-servers/allowed-hosts`, beside Saturn's `ALLOWED_MCP_HOSTS`. Custom servers on those hosts can now be connected; before, any host outside Saturn's list was refused. Approving a host needs a recent sign-in, and the change is recorded. A removed host stops calls at once. Migration `067_mcp_allowed_hosts` adds the table.
+- At most 256 upstream HTTP clients are kept, one per host. The least recently used one is closed 180 seconds after it is retired, so a call still using it can finish.
+
 - `mcp.cloudflare.com`, `run.googleapis.com`, `redis.googleapis.com`, `sqladmin.googleapis.com` (Cloud SQL), `api.alphaxiv.org` and `mcp.withwandb.com` are approved MCP hosts. Google sign-in may now ask for `auth/run`, `auth/redis.read-write` and `auth/cloudsql`, the one scope each of those servers advertises; `cloud-platform` is still never requested.
 
 ### Changed

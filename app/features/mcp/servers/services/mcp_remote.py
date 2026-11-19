@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
+from collections.abc import Collection
 from dataclasses import dataclass
 import hashlib
 import itertools
@@ -204,8 +205,15 @@ _STALE = (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError, httpx.Cl
 # new one each time. Never one client for all hosts: requests go to a pinned address, and the
 # pool finds connections by address, so a shared pool could send a request for one name over a
 # connection whose certificate was checked for another name on the same address. The names come
-# from ALLOWED_MCP_HOSTS, which bounds how many clients exist.
-_clients: dict[str, httpx.AsyncClient] = {}
+# from ALLOWED_MCP_HOSTS and from hosts organizations approved, so the least recently used client
+# is retired past MAX_CLIENTS.
+MAX_CLIENTS = 256
+# A retired client may still be serving a call: an initialize (20 s) and a tools/call (60 s), each
+# possibly retried once on a dead connection. It is closed well after that.
+_RETIRE_AFTER = 180.0
+_clients: OrderedDict[str, httpx.AsyncClient] = OrderedDict()
+_retired: set[httpx.AsyncClient] = set()
+_retiring: set[asyncio.Task[None]] = set()
 # A kept session's tools/call can be the first request on a reused connection, and a failure
 # there is uncertain, never resent. Node's HTTP server, which the TypeScript MCP SDK runs on,
 # closes idle connections after 5 s by default, so a connection is never kept idle that long:
@@ -219,19 +227,41 @@ def _no_cookies() -> CookieJar:
     return CookieJar(policy=DefaultCookiePolicy(allowed_domains=[]))
 
 
+async def _close_later(client: httpx.AsyncClient) -> None:
+    try:
+        await asyncio.sleep(_RETIRE_AFTER)
+        await client.aclose()
+    finally:
+        _retired.discard(client)
+
+
+def _retire(client: httpx.AsyncClient) -> None:
+    _retired.add(client)
+    task = asyncio.get_running_loop().create_task(_close_later(client))
+    _retiring.add(task)
+    task.add_done_callback(_retiring.discard)
+
+
 def _client_for(host: str) -> httpx.AsyncClient:
     client = _clients.get(host)
     if client is None or client.is_closed:
         client = httpx.AsyncClient(follow_redirects=False, trust_env=False, limits=_LIMITS, cookies=_no_cookies())
         _clients[host] = client
+    _clients.move_to_end(host)
+    while len(_clients) > MAX_CLIENTS:
+        _, oldest = _clients.popitem(last=False)
+        _retire(oldest)
     return client
 
 
 async def close_clients() -> None:
     """Close every kept connection and forget every upstream session. Called when the application stops."""
     _sessions.clear()
-    clients = list(_clients.values())
+    for task in list(_retiring):
+        task.cancel()
+    clients = list(_clients.values()) + list(_retired)
     _clients.clear()
+    _retired.clear()
     for client in clients:
         await client.aclose()
 
@@ -441,13 +471,19 @@ async def _send_in(
 
 
 async def _session_request(
-    endpoint: str, authorization: str, method: str, params: dict[str, Any], *, timeout: float  # noqa: ASYNC109
+    endpoint: str,
+    authorization: str,
+    method: str,
+    params: dict[str, Any],
+    *,
+    timeout: float,  # noqa: ASYNC109
+    extra_hosts: Collection[str] = (),
 ) -> tuple[str, httpx.Response]:
     """Send one request in an upstream session, reusing a kept one when there is one.
 
     Returns (checked endpoint, response). The caller checks the status.
     """
-    url, request_url, header_auth, host = await asyncio.to_thread(_target, endpoint, authorization)
+    url, request_url, header_auth, host = await asyncio.to_thread(_target, endpoint, authorization, extra_hosts)
     client = _client_for(host)
     # Without a credential nothing tells one organization's calls from another's, so each call
     # gets its own session, as before sessions were kept.
@@ -488,16 +524,19 @@ async def _session_request(
     return url, response
 
 
-def _target(endpoint: str, authorization: str) -> tuple[str, str, str, str]:
+def _target(endpoint: str, authorization: str, extra_hosts: Collection[str] = ()) -> tuple[str, str, str, str]:
     """Check the endpoint and pin it to an address. Both steps resolve DNS, which blocks."""
-    url = require_mcp_endpoint(endpoint)
+    url = require_mcp_endpoint(endpoint, extra_hosts)
     request_url, header_auth = sec_api_request(url, authorization)
     request_url, host = pin_mcp_url(request_url)
     return url, request_url, header_auth, host
 
 
-async def list_remote_tools(endpoint: str, authorization: str = "") -> list[dict[str, Any]]:
-    url, listed = await _session_request(endpoint, authorization, "tools/list", {}, timeout=20)
+async def list_remote_tools(
+    endpoint: str, authorization: str = "", *, extra_hosts: Collection[str] = ()
+) -> list[dict[str, Any]]:
+    """`extra_hosts`: the hosts the organization's admins approved (mcp_hosts.organization_hosts)."""
+    url, listed = await _session_request(endpoint, authorization, "tools/list", {}, timeout=20, extra_hosts=extra_hosts)
     _raise_for_status(listed, url)
     tools = _tools(_payload(listed))
     if not tools:
@@ -519,8 +558,17 @@ async def call_remote_tool(
     name: str,
     arguments: dict[str, Any],
     authorization: str = "",
+    *,
+    extra_hosts: Collection[str] = (),
 ) -> dict[str, Any]:
-    url, called = await _session_request(endpoint, authorization, "tools/call", {"name": name, "arguments": arguments}, timeout=60)
+    url, called = await _session_request(
+        endpoint,
+        authorization,
+        "tools/call",
+        {"name": name, "arguments": arguments},
+        timeout=60,
+        extra_hosts=extra_hosts,
+    )
     _raise_for_status(called, url, call=True)
     body = _payload(called, call=True)
     if body.get("error"):

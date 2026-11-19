@@ -367,11 +367,14 @@ class McpOAuth:
 
         if split_url_credential(url)[1]:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Put the API key in the authorization field, not the URL")
-        url = require_mcp_endpoint(url)
+        from app.features.mcp.servers.services.mcp_hosts import organization_hosts
+
+        approved = await organization_hosts(session, user.organization_id)
+        url = require_mcp_endpoint(url, approved)
         if not _NONCE.match(nonce):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Sign-in nonce is invalid")
         try:
-            await list_remote_tools(url, "")
+            await list_remote_tools(url, "", extra_hosts=approved)
         except McpUnauthorized as denied:
             authorization_url, binding = await self._authorize(session, user, label, url, origin, nonce, denied)
             return {"authorization_url": authorization_url, "binding": binding}

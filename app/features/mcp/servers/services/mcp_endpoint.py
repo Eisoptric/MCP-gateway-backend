@@ -3,11 +3,13 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
+from collections.abc import Collection
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import HTTPException, status
 
-# Marketplace MCP hosts. A connection must use HTTPS and one of these names.
+# Marketplace MCP hosts, approved for every organization. A connection must use HTTPS and one of
+# these names or a name the organization's admins approved (McpAllowedHost).
 ALLOWED_MCP_HOSTS = frozenset(
     {
         "gmailmcp.googleapis.com",
@@ -107,7 +109,12 @@ def address_blocked(value: str) -> bool:
     return address.version == 4 and any(address in network for network in _BLOCKED_V4)
 
 
-def require_mcp_endpoint(url: str) -> str:
+def require_mcp_endpoint(url: str, extra_hosts: Collection[str] = ()) -> str:
+    """Check an MCP endpoint before Saturn sends anything to it.
+
+    `extra_hosts` are the hosts the calling organization's admins approved (mcp_hosts.py). A host
+    on neither list is refused. Every other check applies to both lists alike.
+    """
     parts = urlsplit(url.strip())
     host = (parts.hostname or "").lower().rstrip(".")
     if parts.scheme != "https" or not host or parts.username or parts.password:
@@ -117,7 +124,7 @@ def require_mcp_endpoint(url: str) -> str:
         literal_ip = True
     except ValueError:
         literal_ip = False
-    if literal_ip or host in _METADATA_HOSTS or host not in ALLOWED_MCP_HOSTS:
+    if literal_ip or host in _METADATA_HOSTS or (host not in ALLOWED_MCP_HOSTS and host not in extra_hosts):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "MCP endpoint host is not approved")
     try:
         port = parts.port or 443

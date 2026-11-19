@@ -46,7 +46,7 @@ async def test_no_transaction_is_open_while_the_upstream_is_called(client, monke
         seen["session"] = session
         return await original(session, server)
 
-    async def called(endpoint, tool, arguments, authorization=""):
+    async def called(endpoint, tool, arguments, authorization="", **_kwargs):
         seen["open"] = seen["session"].in_transaction()
         return {"content": [{"type": "text", "text": "ok"}]}
 
@@ -66,7 +66,7 @@ async def test_a_failed_upstream_call_still_leaves_its_request_record(client, mo
     call = await _gateway(client, monkeypatch)
     await call({"repo": "works"})
 
-    async def broken(endpoint, tool, arguments, authorization=""):
+    async def broken(endpoint, tool, arguments, authorization="", **_kwargs):
         raise RuntimeError("upstream fell over")
 
     monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", broken)

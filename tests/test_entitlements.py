@@ -58,14 +58,14 @@ async def test_seed_org_is_pro(client):
 
 @pytest.mark.asyncio
 async def test_free_connects_tool_sets_and_uses_every_api(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [
             # What list_remote_tools returns for a tool annotated readOnlyHint: true.
             {"name": "repo.read", "description": "Read", "inputSchema": {"type": "object"}, "permissions": ["read"]},
             {"name": "repo.delete", "description": "Delete", "inputSchema": {"type": "object"}, "permissions": ["write"]},
         ]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
@@ -210,7 +210,7 @@ async def test_free_connects_tool_sets_and_uses_every_api(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_pro_manages_policies_sets_and_audit(client, monkeypatch):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "repo.read", "description": "Read", "inputSchema": {"type": "object"}}]
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)

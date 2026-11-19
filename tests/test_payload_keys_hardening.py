@@ -49,10 +49,10 @@ async def _org_key(client):
 
 
 async def _gateway(client, monkeypatch, name="Zero Agent"):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "repo.read", "description": "Read", "inputSchema": {"type": "object"}}]
 
-    async def called(endpoint, tool, arguments, authorization=""):
+    async def called(endpoint, tool, arguments, authorization="", **_kwargs):
         return {"content": [{"type": "text", "text": "ok"}]}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
@@ -96,10 +96,10 @@ def _member_dek(private, org, record, member_key_id):
 
 
 async def _approval_setup(client, monkeypatch, calls, policy_body):
-    async def listed(endpoint, authorization=""):
+    async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "pay.send", "description": "Send", "inputSchema": {"type": "object", "properties": {}}}]
 
-    async def called(endpoint, name, arguments, authorization=""):
+    async def called(endpoint, name, arguments, authorization="", **_kwargs):
         calls["n"] += 1
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
 
