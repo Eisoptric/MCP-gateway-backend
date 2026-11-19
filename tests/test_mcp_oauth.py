@@ -320,6 +320,46 @@ async def test_google_sign_in_uses_the_configured_oauth_client(client, monkeypat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("host", "scope"),
+    [
+        ("run.googleapis.com", "https://www.googleapis.com/auth/run"),
+        ("redis.googleapis.com", "https://www.googleapis.com/auth/redis.read-write"),
+    ],
+)
+async def test_google_cloud_servers_request_their_own_scope(client, monkeypatch, host, scope):
+    monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_ID", "saturn.apps.googleusercontent.com")
+    monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+
+    async def listed(endpoint, authorization=""):
+        return [{"name": "list_services", "description": "List", "inputSchema": {"type": "object", "properties": {}}}]
+
+    async def requested(method, url, **kwargs):
+        if url == f"https://{host}/.well-known/oauth-protected-resource/mcp":
+            return _response(
+                200,
+                {
+                    "resource": f"https://{host}/mcp",
+                    "authorization_servers": ["https://accounts.google.com/"],
+                    "scopes_supported": [scope, "https://www.googleapis.com/auth/cloud-platform"],
+                },
+            )
+        return await _google_metadata(method, url, **kwargs)
+
+    monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth.list_remote_tools", listed)
+    monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth._request", requested)
+    started = await client.post(
+        "/mcp-servers/oauth/start",
+        json={"name": host, "endpoint": f"https://{host}/mcp", "nonce": "nonce-gcloud1"},
+    )
+    assert started.status_code == 200, started.text
+    query = parse_qs(urlparse(started.json()["authorization_url"]).query)
+    assert query["client_id"] == ["saturn.apps.googleusercontent.com"]
+    # cloud-platform is broader than the server needs, so it is never requested.
+    assert query["scope"] == [scope]
+
+
+@pytest.mark.asyncio
 async def test_google_without_an_oauth_client_asks_for_a_pasted_token(client, monkeypatch):
     monkeypatch.delenv("SATURN_GOOGLE_OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)

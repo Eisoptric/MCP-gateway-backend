@@ -4,6 +4,10 @@ Notable changes to Saturn Backend. The format follows [Keep a Changelog](https:/
 
 ## [Unreleased]
 
+### Added
+
+- `mcp.cloudflare.com`, `run.googleapis.com` and `redis.googleapis.com` are approved MCP hosts. Google sign-in may now ask for `auth/run` and `auth/redis.read-write`, the one scope each of those servers advertises; `cloud-platform` is still never requested.
+
 ### Changed
 
 - The outside uptime check moved from a scheduled GitHub workflow to Cloud Monitoring, created by `infra/gcp/uptime-checks.sh`, with an email alert. On the Cloudflare free plan, Bot Fight Mode answered every run from GitHub with a 403 while the API was up.

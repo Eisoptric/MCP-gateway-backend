@@ -309,6 +309,9 @@ _GOOGLE_SCOPES = frozenset(
         "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
         "https://www.googleapis.com/auth/calendar.events.freebusy",
         "https://www.googleapis.com/auth/calendar.events.readonly",
+        # Cloud Run and Memorystore for Redis each advertise one scope for their whole MCP server.
+        "https://www.googleapis.com/auth/run",
+        "https://www.googleapis.com/auth/redis.read-write",
     }
 )
 # Never requested through Saturn's GitHub app, whatever the server advertises.

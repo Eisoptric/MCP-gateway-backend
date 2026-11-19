@@ -12,6 +12,9 @@ ALLOWED_MCP_HOSTS = frozenset(
     {
         "gmailmcp.googleapis.com",
         "calendarmcp.googleapis.com",
+        "run.googleapis.com",
+        "redis.googleapis.com",
+        "mcp.cloudflare.com",
         "mcp.mercury.com",
         "mcp.ether.fi",
         "agents.coinbase.com",
