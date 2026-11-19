@@ -116,6 +116,7 @@ def _page(title: str, body: str, status_code: int = 200, *, wide: bool = False, 
     /* 16px: iOS Safari zooms into any field with smaller text and stays zoomed. */
     input {{ width: 100%; box-sizing: border-box; margin-top: 6px; height: 40px; border: 1px solid #e6e6e1; border-radius: 8px; background: #fff; padding: 0 10px; font: inherit; font-size: 16px; }}
     .legal {{ margin-top: 22px; font-size: 12px; line-height: 1.6; }}
+    .error {{ margin: 12px 0 0; padding: 8px 10px; border-radius: 8px; background: #fdecea; color: #a4271b; font-size: 13px; }}
     .legal a {{ color: #111110; }}
     .row {{ display: flex; gap: 8px; margin-top: 18px; }}
     .row button {{ flex: 1; }}
@@ -524,25 +525,31 @@ def _passkey_page(fields: dict[str, str], challenge: str, *, after_email: bool =
     )
 
 
-def _code_page(fields: dict[str, str], challenge: str, method: str, *, passkey: bool = False) -> HTMLResponse:
+def _code_page(
+    fields: dict[str, str], challenge: str, method: str, *, passkey: bool = False, error: str = "", status_code: int = 200
+) -> HTMLResponse:
     if method == "totp":
         lead = "Enter the 6-digit code from your authenticator app, or a backup code."
         label = "驗證器代碼 Authenticator code"
     else:
         lead = "We emailed a sign-in code. Enter it to continue."
         label = "驗證碼 Code"
+    alert = f'<p class="error" role="alert">{escape(error)}</p>' if error else ""
     return _page(
         "Verify sign-in",
         f"""<h1>驗證登入</h1>
             <p>{escape(lead)}</p>
+            {alert}
             <form method="post" action="/oauth/login/code">
               {_hidden(fields)}
               <input type="hidden" name="challenge" value="{escape(challenge)}">
               <input type="hidden" name="method" value="{escape(method)}">
-              <label>{escape(label)}<input name="code" inputmode="numeric" autocomplete="one-time-code" required></label>
+              <input type="hidden" name="passkey" value="{"1" if passkey else ""}">
+              <label>{escape(label)}<input name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus></label>
               <div class="row"><button type="submit">繼續 Continue</button></div>
             </form>
             {_passkey_link(fields, challenge, secondary=True) if passkey else ""}""",
+        status_code,
     )
 
 
@@ -649,8 +656,21 @@ async def oauth_login_code(request: Request, session: SessionDep):
             user = await mfa_service.finish_totp(session, challenge, form.get("code", ""))
         else:
             user, further = await mfa_service.finish_email(session, challenge, form.get("code", ""))
-    except HTTPException:
-        return _page("Connect Agents", "<h1>驗證失敗</h1><p>That code is incorrect or expired.</p>", 400)
+    except HTTPException as exc:
+        # The challenge allows a few guesses (MAX_ATTEMPTS). While it does, show the form again
+        # with the same challenge, so one typo does not mean waiting for a new code.
+        method = "totp" if form.get("method", "") == "totp" else "email"
+        if await mfa_service.challenge_open(session, challenge):
+            if exc.status_code == 429:
+                message = "Too many incorrect codes. Wait a few minutes, or use another sign-in method."
+            else:
+                message = "That code is incorrect. Check it and try again."
+            return _code_page(fields, challenge, method, passkey=form.get("passkey") == "1", error=message, status_code=400)
+        return _page(
+            "Connect Agents",
+            "<h1>驗證失敗</h1><p>That code is incorrect or expired, and this sign-in has ended. Start again from the agent to get a new code.</p>",
+            400,
+        )
     if "totp" in further:
         return _code_page(fields, challenge, "totp", passkey="passkey" in further)
     if further:
