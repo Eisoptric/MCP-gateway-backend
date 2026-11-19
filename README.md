@@ -246,7 +246,7 @@ How a decision is reached:
 4. When no applicable policy has a rule for the tool, the agent's tool set decides: `approval_required` if the tool's item is marked for approval, otherwise `allow`. The tool set is read on every call, so changing it applies to the next call and to the check before an approved call runs.
 5. Otherwise, with no applicable policy at all, the call is denied, unless `POLICY_DEFAULT_DENY=false`; with applicable policies that have no rule for the tool, it is denied.
 
-A tool set item marked for approval requires approval whatever the policy says. The default policy created at onboarding allows tools whose permissions are read-only and requires approval for `write`, `admin` and `mutate`; connecting a server adds rules for its new tools to it. Existing organizations are not rewritten.
+A tool set item marked for approval requires approval whatever the policy says. The default policy created at onboarding allows tools whose permissions are read-only and requires approval for `write`, `admin` and `mutate`; connecting a server adds rules for its new tools to it. Existing organizations are not rewritten. The default policy can be paused or deleted like any other; once it is deleted, nothing recreates it, and tools without a policy rule follow the agent's tool set.
 
 `/policies/{id}/validate`, `/simulate` and `/activate` check a policy before it takes effect. `/policies/generate` and `/policies/{id}/optimize` (each also as `/stream`) ask a model at `POLICY_LLM_BASE_URL` to propose one rule per tool. The model cannot activate a policy, tools it does not classify stay denied, and the routes are limited to 20 calls per member and 60 per organization per hour.
 

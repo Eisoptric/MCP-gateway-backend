@@ -394,7 +394,7 @@ def test_unconditional_allow_beside_a_conditional_deny_is_warned():
     assert any(item["code"] == "shadowed" and item["level"] == "warning" for item in report["issues"])
 
 
-async def test_default_policy_cannot_be_deleted_or_impersonated(client):
+async def test_default_policy_cannot_be_impersonated_but_can_be_deleted(client):
     org_id = (await client.get("/auth/me")).json()["organization"]["id"]
     generator, session = await _db_session()
     try:
@@ -403,13 +403,14 @@ async def test_default_policy_cannot_be_deleted_or_impersonated(client):
         policy_id = policy.id
     finally:
         await generator.aclose()
-    refused = await client.delete(f"/policies/{policy_id}")
-    assert refused.status_code == 400
-    assert (await client.get(f"/policies/{policy_id}")).status_code == 200
     renamed = await client.patch(f"/policies/{policy_id}", json={"description": "mine now"})
     assert renamed.status_code == 400
     impostor = await client.post("/policies", json={"name": "Fake", "description": MARKER, "rules": []})
     assert impostor.status_code == 400
+    # Deleting it is allowed: tools without a policy rule then follow the agent's tool set.
+    deleted = await client.delete(f"/policies/{policy_id}")
+    assert deleted.status_code == 204, deleted.text
+    assert (await client.get(f"/policies/{policy_id}")).status_code == 404
 
 
 # --- I-02 ------------------------------------------------------------------

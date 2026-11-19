@@ -188,3 +188,47 @@ async def test_a_tool_added_without_saying_waits_for_approval(client, monkeypatc
     held = await _call(client, access, "notes.write")
     assert held["error"]["data"]["approval_id"], held
     assert sent == []
+
+
+async def test_deleting_the_default_policy_leaves_the_tool_set_in_charge(client, monkeypatch, default_deny):
+    from sqlalchemy import select
+
+    from app.db.database import get_session
+    from app.features.policy.policies.services.default_policy import MARKER, ensure_default_policy
+    from app.main import app
+    from app.models import Policy
+
+    access, _set_id, _ids, sent = await _setup(client, monkeypatch, {"notes.read": False})
+    org_id = (await client.get("/auth/me")).json()["organization"]["id"]
+    generator = app.dependency_overrides[get_session]()
+    session = await generator.__anext__()
+    try:
+        default = await ensure_default_policy(session, org_id)
+        await session.commit()
+        default_id = default.id
+    finally:
+        await generator.aclose()
+
+    # The default policy has a rule for the tool (unknown permissions: approval), so it decides.
+    held = await _call(client, access, "notes.read")
+    assert held["error"]["data"]["approval_id"], held
+    assert sent == []
+
+    deleted = await client.delete(f"/policies/{default_id}")
+    assert deleted.status_code == 204, deleted.text
+    allowed = await _call(client, access, "notes.read")
+    assert allowed["result"]["tool"] == "notes.read", allowed
+    assert sent == ["notes.read"]
+
+    # Connecting another server does not bring the default policy back.
+    connected = await client.post(
+        "/mcp-servers",
+        json={"name": "Notes 2", "endpoint": "https://mcp.linear.app/mcp", "authorization": "token-2"},
+    )
+    assert connected.status_code == 201, connected.text
+    generator = app.dependency_overrides[get_session]()
+    session = await generator.__anext__()
+    try:
+        assert await session.scalar(select(Policy).where(Policy.description == MARKER)) is None
+    finally:
+        await generator.aclose()
