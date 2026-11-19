@@ -264,7 +264,7 @@ async def discover(endpoint: str, www_authenticate: str) -> Discovery:
     registration = str(auth_doc.get("registration_endpoint") or "")
     scopes = resource_doc.get("scopes_supported")
     issuer_value = issuer.rstrip("/")
-    scope = granted_scope(issuer_value, scopes if isinstance(scopes, list) else [])
+    scope = granted_scope(issuer_value, scopes if isinstance(scopes, list) else [], endpoint)
     resource = str(resource_doc.get("resource") or endpoint).strip()
     if not url_allowed(str(auth_doc["authorization_endpoint"])) or not url_allowed(str(auth_doc["token_endpoint"])):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This MCP server did not offer a sign-in page")
@@ -302,19 +302,26 @@ _PRESET_CLIENTS = (
     (GITHUB_ISSUER, "SATURN_GITHUB_OAUTH_CLIENT_ID", "SATURN_GITHUB_OAUTH_CLIENT_SECRET", ("api.githubcopilot.com",)),
     (GOOGLE_ISSUER, "SATURN_GOOGLE_OAUTH_CLIENT_ID", "SATURN_GOOGLE_OAUTH_CLIENT_SECRET", (".googleapis.com",)),
 )
-_GOOGLE_SCOPES = frozenset(
-    {
-        "https://www.googleapis.com/auth/gmail.readonly",
-        "https://www.googleapis.com/auth/gmail.compose",
-        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
-        "https://www.googleapis.com/auth/calendar.events.freebusy",
-        "https://www.googleapis.com/auth/calendar.events.readonly",
-        # Cloud Run, Memorystore for Redis and Cloud SQL each advertise one scope for their whole MCP server.
-        "https://www.googleapis.com/auth/run",
-        "https://www.googleapis.com/auth/redis.read-write",
-        "https://www.googleapis.com/auth/cloudsql",
-    }
-)
+_G = "https://www.googleapis.com/auth/"
+# The scopes Saturn's Google app asks for, per MCP host: the least each marketplace card needs.
+# A Google server advertises far more (Drive offers full `drive`, Gmail offers `mail.google.com`),
+# and one host's scopes are never requested for another. A Google host with no entry here,
+# including one an organization approved itself, gets no scope and so no sign-in.
+_GOOGLE_SCOPES: dict[str, frozenset[str]] = {
+    "gmailmcp.googleapis.com": frozenset({_G + "gmail.readonly", _G + "gmail.compose"}),
+    "calendarmcp.googleapis.com": frozenset(
+        {_G + "calendar.calendarlist.readonly", _G + "calendar.events.freebusy", _G + "calendar.events.readonly"}
+    ),
+    "sheetsmcp.googleapis.com": frozenset({_G + "spreadsheets"}),
+    "docsmcp.googleapis.com": frozenset({_G + "documents"}),
+    "slidesmcp.googleapis.com": frozenset({_G + "presentations"}),
+    # Search needs to see the files the member already has; upload and copy need drive.file.
+    "drivemcp.googleapis.com": frozenset({_G + "drive.readonly", _G + "drive.file"}),
+    # Cloud Run, Memorystore for Redis and Cloud SQL each advertise one scope for their whole server.
+    "run.googleapis.com": frozenset({_G + "run"}),
+    "redis.googleapis.com": frozenset({_G + "redis.read-write"}),
+    "sqladmin.googleapis.com": frozenset({_G + "cloudsql"}),
+}
 # Never requested through Saturn's GitHub app, whatever the server advertises.
 _GITHUB_DENIED_SCOPES = frozenset({"delete_repo", "delete:packages", "site_admin", "admin:enterprise"})
 
@@ -338,11 +345,17 @@ def preset_client(issuer: str, endpoint: str = "") -> dict[str, str] | None:
     return None
 
 
-def granted_scope(issuer: str, scopes: list[Any]) -> str:
+def granted_scope(issuer: str, scopes: list[Any], endpoint: str = "") -> str:
+    """The scopes to ask for: what the server advertises, narrowed for Saturn's own OAuth apps.
+
+    `endpoint` is the MCP server's URL. For Google, it picks which scopes that host may have.
+    """
     chosen = [str(item).strip() for item in scopes if str(item).strip()]
     normalized = issuer.rstrip("/")
     if normalized == GOOGLE_ISSUER:
-        chosen = [item for item in chosen if item in _GOOGLE_SCOPES]
+        host = (urlparse(endpoint).hostname or "").lower().rstrip(".")
+        allowed = _GOOGLE_SCOPES.get(host, frozenset())
+        chosen = [item for item in chosen if item in allowed]
     elif normalized == GITHUB_ISSUER:
         chosen = [item for item in chosen if item not in _GITHUB_DENIED_SCOPES and not item.startswith("admin:")]
     return " ".join(chosen)

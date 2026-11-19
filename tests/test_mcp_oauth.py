@@ -361,6 +361,46 @@ async def test_google_cloud_servers_request_their_own_scope(client, monkeypatch,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("host", "advertised", "wanted"),
+    [
+        (
+            "drivemcp.googleapis.com",
+            ["drive", "drive.readonly", "drive.file"],
+            ["drive.readonly", "drive.file"],
+        ),
+        (
+            "sheetsmcp.googleapis.com",
+            ["drive.readonly", "spreadsheets.readonly", "drive", "spreadsheets"],
+            ["spreadsheets"],
+        ),
+        # A Google host Saturn has no entry for gets nothing, even scopes another host may have.
+        ("bigquery.googleapis.com", ["gmail.readonly", "bigquery"], []),
+    ],
+)
+async def test_each_google_host_gets_only_its_own_scopes(host, advertised, wanted, monkeypatch):
+    from app.features.mcp.oauth.services import mcp_oauth
+
+    google = "https://www.googleapis.com/auth/"
+
+    async def requested(method, url, **kwargs):
+        if url == f"https://{host}/.well-known/oauth-protected-resource/mcp/v1":
+            return _response(
+                200,
+                {
+                    "resource": f"https://{host}/mcp/v1",
+                    "authorization_servers": ["https://accounts.google.com/"],
+                    "scopes_supported": [google + item for item in advertised],
+                },
+            )
+        return await _google_metadata(method, url, **kwargs)
+
+    monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth._request", requested)
+    found = await mcp_oauth.discover(f"https://{host}/mcp/v1", "")
+    assert found.scope.split() == [google + item for item in wanted]
+
+
+@pytest.mark.asyncio
 async def test_google_without_an_oauth_client_asks_for_a_pasted_token(client, monkeypatch):
     monkeypatch.delenv("SATURN_GOOGLE_OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)

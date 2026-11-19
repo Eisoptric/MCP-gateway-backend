@@ -11,8 +11,13 @@ Notable changes to Saturn Backend. The format follows [Keep a Changelog](https:/
 
 - `mcp.cloudflare.com`, `run.googleapis.com`, `redis.googleapis.com`, `sqladmin.googleapis.com` (Cloud SQL), `api.alphaxiv.org` and `mcp.withwandb.com` are approved MCP hosts. Google sign-in may now ask for `auth/run`, `auth/redis.read-write` and `auth/cloudsql`, the one scope each of those servers advertises; `cloud-platform` is still never requested.
 
+### Fixed
+
+- Sixteen marketplace servers could not be connected because their hosts were missing from `ALLOWED_MCP_HOSTS`: Google Sheets, Docs, Slides and Drive, Canva, Figma, Adobe, Microsoft 365, Etherscan, Vercel, Indeed, Spotify, Booking.com, Sumsub, Northwest Registered Agent and Plaid. Their hosts are added, and so is `mcp.slack.com`, Slack's fixed MCP endpoint.
+
 ### Changed
 
+- Saturn's Google OAuth app now asks each Google MCP host only for its own scopes (`_GOOGLE_SCOPES` maps host to scopes). Before, one shared list was matched against whatever a server advertised, so any Google server listing another one's scope got it too. Sheets, Docs and Slides get `spreadsheets`, `documents` and `presentations`; Drive gets `drive.readonly` and `drive.file`, never full `drive`. A Google host with no entry, including one an organization approved, gets no scope.
 - The outside uptime check moved from a scheduled GitHub workflow to Cloud Monitoring, created by `infra/gcp/uptime-checks.sh`, with an email alert. On the Cloudflare free plan, Bot Fight Mode answered every run from GitHub with a 403 while the API was up.
 
 ## [0.1.0] - 2026-11-16
