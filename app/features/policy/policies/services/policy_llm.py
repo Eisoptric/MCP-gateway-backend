@@ -8,6 +8,7 @@ the status guard below.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -250,6 +251,48 @@ def _marker_prefix(text: str) -> int:
     return 0
 
 
+logger = logging.getLogger(__name__)
+
+
+def _model_refused(status_code: int, body: str) -> HTTPException:
+    """Say why the model provider refused, without its body. The body goes to the log only.
+
+    Every refusal used to read "Policy model request failed", in the response and nowhere else,
+    so a wrong key, model name or URL could not be told apart.
+    """
+    settings = get_settings()
+    from app.features.mcp.servers.services.mcp_remote import redact
+
+    logger.warning(
+        "Policy model refused: HTTP %s from %s (model %s): %s",
+        status_code,
+        settings.policy_llm_base_url,
+        settings.policy_llm_model,
+        redact(body, settings.policy_llm_api_key)[:500],
+    )
+    if status_code in (401, 403):
+        detail = f"Policy model rejected the API key (HTTP {status_code}). Check POLICY_LLM_API_KEY."
+    elif status_code == 404:
+        detail = "Policy model endpoint or model not found (HTTP 404). Check POLICY_LLM_BASE_URL and POLICY_LLM_MODEL."
+    elif status_code == 429:
+        detail = "Policy model is rate limited or out of credit (HTTP 429). Try again later."
+    elif status_code in (400, 422):
+        detail = f"Policy model rejected the request (HTTP {status_code}). Check POLICY_LLM_MODEL."
+    elif status_code >= 500:
+        detail = f"Policy model provider had an error (HTTP {status_code}). Try again later."
+    else:
+        detail = f"Policy model request failed (HTTP {status_code})."
+    return HTTPException(status.HTTP_502_BAD_GATEWAY, detail)
+
+
+def _model_unreachable(exc: httpx.HTTPError) -> HTTPException:
+    settings = get_settings()
+    logger.warning("Policy model unreachable at %s: %s", settings.policy_llm_base_url, type(exc).__name__)
+    if isinstance(exc, httpx.TimeoutException):
+        return HTTPException(status.HTTP_504_GATEWAY_TIMEOUT, "Policy model did not answer in time. Try fewer tools.")
+    return HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not reach the policy model. Check POLICY_LLM_BASE_URL.")
+
+
 async def _chat(messages: list[dict[str, str]]) -> dict[str, Any]:
     settings = get_settings()
     base = settings.policy_llm_base_url.rstrip("/")
@@ -262,10 +305,13 @@ async def _chat(messages: list[dict[str, str]]) -> dict[str, Any]:
                 json=payload,
             )
     except httpx.HTTPError as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Policy model request failed") from exc
+        raise _model_unreachable(exc) from exc
     if response.status_code >= 400:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Policy model request failed")
-    body = response.json()
+        raise _model_refused(response.status_code, response.text)
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Policy model returned an unreadable response") from exc
     try:
         message = body["choices"][0]["message"]
     except (KeyError, IndexError, TypeError) as exc:
@@ -343,7 +389,7 @@ async def _iter_deltas(messages: list[dict[str, str]]):
             ) as response:
                 if response.status_code >= 400:
                     await response.aread()
-                    raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Policy model request failed")
+                    raise _model_refused(response.status_code, response.text)
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
                         continue
@@ -372,7 +418,7 @@ async def _iter_deltas(messages: list[dict[str, str]]):
     except HTTPException:
         raise
     except httpx.HTTPError as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Policy model request failed") from exc
+        raise _model_unreachable(exc) from exc
 
 
 def _as_text(value: Any) -> str:

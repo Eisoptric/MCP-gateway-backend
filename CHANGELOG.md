@@ -13,6 +13,7 @@ Notable changes to Saturn Backend. The format follows [Keep a Changelog](https:/
 
 ### Fixed
 
+- Drafting or optimizing a policy with the model failed with only "Policy model request failed", and nothing was logged, so a wrong key, model name or URL looked the same. The message now names the cause by the provider's status (key rejected, endpoint or model not found, rate limited or out of credit, request rejected, provider error, timeout, unreachable). The provider's response, with the key removed, is logged as a warning. It is never shown in the console.
 - Signing in to connect an agent failed on iOS with "Start again from the agent to sign in". The sign-in pages send `Referrer-Policy: no-referrer`, so WebKit posts their forms with `Origin: null`, which the cross-site check refused. A null origin is now accepted when `Sec-Fetch-Site` is `same-origin`; with any other value, or none, it is still refused.
 - The OAuth sign-in fields use 16px text, so iOS no longer zooms into them.
 - Sixteen marketplace servers could not be connected because their hosts were missing from `ALLOWED_MCP_HOSTS`: Google Sheets, Docs, Slides and Drive, Canva, Figma, Adobe, Microsoft 365, Etherscan, Vercel, Indeed, Spotify, Booking.com, Sumsub, Northwest Registered Agent and Plaid. Their hosts are added, and so is `mcp.slack.com`, Slack's fixed MCP endpoint.
