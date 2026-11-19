@@ -271,6 +271,7 @@ async def _google_metadata(method, url, **kwargs):
                 "scopes_supported": [
                     "https://mail.google.com/",
                     "https://www.googleapis.com/auth/gmail.compose",
+                    "https://www.googleapis.com/auth/gmail.modify",
                     "https://www.googleapis.com/auth/gmail.readonly",
                 ],
             },
@@ -310,9 +311,8 @@ async def test_google_sign_in_uses_the_configured_oauth_client(client, monkeypat
     query = parse_qs(authorize.query)
     assert query["client_id"] == ["saturn.apps.googleusercontent.com"]
     assert "client_secret" not in query
-    assert query["scope"] == [
-        "https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly"
-    ]
+    # Only gmail.modify: it covers reading, drafts and labels. Full mail.google.com is never asked for.
+    assert query["scope"] == ["https://www.googleapis.com/auth/gmail.modify"]
     assert query["access_type"] == ["offline"]
     assert query["redirect_uri"] == [
         "https://saturn-backend-629072855899.asia-east1.run.app/mcp-servers/oauth/callback"
