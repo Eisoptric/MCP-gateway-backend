@@ -173,3 +173,18 @@ async def test_the_engine_falls_back_only_for_tools_in_the_set(client, monkeypat
         assert without_set.decision == PolicyDecision.DENY
     finally:
         await generator.aclose()
+
+
+async def test_a_tool_added_without_saying_waits_for_approval(client, monkeypatch, default_deny):
+    access, set_id, ids, sent = await _setup(client, monkeypatch, {"notes.read": False, "notes.write": False})
+    # The tool is added with no approval setting.
+    changed = await client.patch(
+        f"/tool-sets/{set_id}",
+        json={"items": [{"tool_id": ids["notes.read"], "approval": False}, {"tool_id": ids["notes.write"]}]},
+    )
+    assert changed.status_code == 200, changed.text
+    modes = {item["tool_id"]: item["approval"] for item in changed.json()["items"]}
+    assert modes == {ids["notes.read"]: False, ids["notes.write"]: True}
+    held = await _call(client, access, "notes.write")
+    assert held["error"]["data"]["approval_id"], held
+    assert sent == []

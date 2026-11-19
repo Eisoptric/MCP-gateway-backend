@@ -179,7 +179,9 @@ class McpOAuthAttemptRead(BaseModel):
 
 class ToolSetItemWrite(BaseModel):
     tool_id: str = Field(max_length=ID_LEN)
-    approval: bool = False
+    # With no policy rule for the tool, this decides the call, so a tool added without saying
+    # waits for a person rather than running.
+    approval: bool = True
 
 
 class ToolSetWrite(BaseModel):

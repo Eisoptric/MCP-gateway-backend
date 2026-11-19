@@ -173,7 +173,7 @@ class ToolSetService:
             tool = await session.get(Tool, tool_id)
             if tool is None or tool.organization_id != user.organization_id or tool.status != "active":
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Tool is not available")
-            wanted[tool_id] = bool(item.get("approval"))
+            wanted[tool_id] = bool(item.get("approval", True))
         if not wanted:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Select at least one tool")
         existing = list(
