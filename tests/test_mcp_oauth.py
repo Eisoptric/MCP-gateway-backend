@@ -374,6 +374,18 @@ async def test_google_cloud_servers_request_their_own_scope(client, monkeypatch,
             ["drive.readonly", "spreadsheets.readonly", "drive", "spreadsheets"],
             ["spreadsheets"],
         ),
+        (
+            "calendarmcp.googleapis.com",
+            [
+                "calendar",
+                "calendar.acls",
+                "calendar.calendarlist.readonly",
+                "calendar.events",
+                "calendar.events.freebusy",
+                "calendar.events.readonly",
+            ],
+            ["calendar.calendarlist.readonly", "calendar.events", "calendar.events.freebusy"],
+        ),
         # A Google host Saturn has no entry for gets nothing, even scopes another host may have.
         ("bigquery.googleapis.com", ["gmail.readonly", "bigquery"], []),
     ],

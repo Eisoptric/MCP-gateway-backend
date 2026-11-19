@@ -311,8 +311,10 @@ _GOOGLE_SCOPES: dict[str, frozenset[str]] = {
     # The Gmail server's tools read, draft, label, archive, trash and mark spam. gmail.modify covers
     # all of them and cannot delete permanently; full mail.google.com is never requested.
     "gmailmcp.googleapis.com": frozenset({_G + "gmail.modify"}),
+    # The Calendar server creates, updates, deletes and responds to events. calendar.events covers
+    # those and reading; full `calendar` (calendars, sharing, settings) has no tool and is not asked for.
     "calendarmcp.googleapis.com": frozenset(
-        {_G + "calendar.calendarlist.readonly", _G + "calendar.events.freebusy", _G + "calendar.events.readonly"}
+        {_G + "calendar.calendarlist.readonly", _G + "calendar.events.freebusy", _G + "calendar.events"}
     ),
     "sheetsmcp.googleapis.com": frozenset({_G + "spreadsheets"}),
     "docsmcp.googleapis.com": frozenset({_G + "documents"}),
