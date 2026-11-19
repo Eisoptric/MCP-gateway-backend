@@ -106,6 +106,8 @@ REPORT_LIMIT = 200
 async def log_agents_without_policy(session: AsyncSession) -> list[str]:
     """Report agents the default-deny flag would block. Does not change them.
 
+    An agent with a tool set is never blocked by it: with no policy, its tool set decides.
+
     One query that returns only the uncovered agents. It used to load every tenant's agents and
     active policies into memory on each start, which grew with the whole platform.
     """
@@ -130,7 +132,7 @@ async def log_agents_without_policy(session: AsyncSession) -> list[str]:
     rows = (
         await session.execute(
             select(Agent.organization_id, Agent.id)
-            .where(~covered)
+            .where(~covered, Agent.tool_set_id.is_(None))
             .order_by(Agent.organization_id, Agent.id)
             .limit(REPORT_LIMIT + 1)
         )

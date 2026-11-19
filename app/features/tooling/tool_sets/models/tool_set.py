@@ -48,7 +48,8 @@ class ToolSetItem(Base):
     tool_id: Mapped[str] = mapped_column(
         ForeignKey("tools.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    approval: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Existing rows keep their value; only new items default to approval.
+    approval: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     tool_set = relationship("ToolSet", back_populates="items")
     tool = relationship("Tool")

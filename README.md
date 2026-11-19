@@ -24,7 +24,7 @@ Saturn MCP sits between AI agents and the MCP servers they use. An agent connect
 This repository is the API: a FastAPI app on Cloud Run with Postgres and Redis. The console at [dashboard.saturn-core.com](https://dashboard.saturn-core.com) is a separate repository ([Saturn-MCP-Frontend](https://github.com/Saturn-Technology-Project/Saturn-MCP-Frontend)), and [saturn-core.com](https://saturn-core.com) describes the product. Saturn App, the desktop agent, can be pointed at Saturn MCP like any other MCP client.
 
 - **One endpoint per organization.** `POST /mcp` speaks MCP over HTTP (`initialize`, `tools/list`, `tools/call`). Each OAuth client that connects becomes an agent of the signed-in member.
-- **Default deny.** A call with no applicable policy is denied, and a tool that has rules but no matching rule is denied.
+- **Default deny.** A tool that has rules but no matching rule is denied. A tool no policy has a rule for follows the agent's tool set: approval if the item is marked for approval, otherwise allowed. Anything else is denied.
 - **Approvals bound to the exact call.** An approval covers one set of arguments under one policy version. If either changes, the approval is invalidated.
 - **Sealed credentials and content.** Upstream credentials are encrypted with per-tenant keys derived from Cloud KMS. Audit content is encrypted to keys the organization holds.
 
@@ -243,7 +243,8 @@ How a decision is reached:
 1. Inside a list policy the first matching rule by position decides. Inside a graph policy (one with `definition.nodes`) the most restrictive matching rule decides.
 2. A policy that has rules for the tool but no match says `deny`.
 3. Across policies the most restrictive opinion wins: `deny` over `approval_required` over `allow`. Positions are never compared across policies.
-4. With no applicable policy at all, the call is denied, unless `POLICY_DEFAULT_DENY=false`.
+4. When no applicable policy has a rule for the tool, the agent's tool set decides: `approval_required` if the tool's item is marked for approval, otherwise `allow`. The tool set is read on every call, so changing it applies to the next call and to the check before an approved call runs.
+5. Otherwise, with no applicable policy at all, the call is denied, unless `POLICY_DEFAULT_DENY=false`; with applicable policies that have no rule for the tool, it is denied.
 
 A tool set item marked for approval requires approval whatever the policy says. The default policy created at onboarding allows tools whose permissions are read-only and requires approval for `write`, `admin` and `mutate`; connecting a server adds rules for its new tools to it. Existing organizations are not rewritten.
 

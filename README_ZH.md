@@ -24,7 +24,7 @@ Saturn MCP 位在 AI Agent 與它們使用的 MCP 伺服器之間。Agent 不再
 這個 repository 是 API：在 Cloud Run 上執行的 FastAPI 應用程式，搭配 Postgres 與 Redis。主控台 [dashboard.saturn-core.com](https://dashboard.saturn-core.com) 是另一個 repository（[Saturn-MCP-Frontend](https://github.com/Saturn-Technology-Project/Saturn-MCP-Frontend)），產品介紹在 [saturn-core.com](https://saturn-core.com)。桌面 Agent Saturn App 也可以像其他 MCP 用戶端一樣連到 Saturn MCP。
 
 - **每個組織一個端點。** `POST /mcp` 以 HTTP 提供 MCP（`initialize`、`tools/list`、`tools/call`）。每個連上來的 OAuth 用戶端，都會成為登入成員的一個 Agent。
-- **預設拒絕。** 沒有任何適用政策的呼叫會被拒絕；某個工具有規則但沒有任何規則符合時，也會被拒絕。
+- **預設拒絕。** 某個工具有規則但沒有任何規則符合時，會被拒絕。沒有任何政策對某個工具訂規則時，依 agent 的工具集決定：該項目標記為需要核准就需要核准，否則允許。其他情況一律拒絕。
 - **核准綁定在那一次呼叫上。** 一次核准只涵蓋一組參數與一個政策版本。任一項改變，核准即失效。
 - **憑證與內容都經過密封。** 上游憑證以從 Cloud KMS 衍生的各租戶金鑰加密。審計內容則加密給組織自己持有的金鑰。
 
@@ -243,7 +243,8 @@ curl -s -X POST localhost:8000/mcp-servers \
 1. 在清單式政策中，依位置第一條符合的規則決定。在圖形政策（有 `definition.nodes` 的政策）中，符合的規則裡最嚴格的那條決定。
 2. 政策有這個工具的規則但沒有任何一條符合時，它的意見是 `deny`。
 3. 跨政策時，最嚴格的意見勝出：`deny` 優先於 `approval_required`，`approval_required` 優先於 `allow`。不同政策之間從不比較位置。
-4. 完全沒有適用的政策時，呼叫會被拒絕，除非設定 `POLICY_DEFAULT_DENY=false`。
+4. 適用的政策都沒有這個工具的規則時，由 agent 的工具集決定：該工具的項目標記為需要核准就是 `approval_required`，否則是 `allow`。每次呼叫都會重新讀取工具集，所以修改後下一次呼叫、以及核准後執行前的檢查都會套用。
+5. 其他情況：完全沒有適用的政策時，呼叫會被拒絕，除非設定 `POLICY_DEFAULT_DENY=false`；有適用的政策但都沒有這個工具的規則時，也會被拒絕。
 
 工具集中標記為需要核准的項目，不論政策怎麼說都需要核准。建立組織時產生的預設政策，允許權限為唯讀的工具，`write`、`admin` 與 `mutate` 則需要核准；連接伺服器時會把新工具的規則加進去。既有組織不會被改寫。
 
