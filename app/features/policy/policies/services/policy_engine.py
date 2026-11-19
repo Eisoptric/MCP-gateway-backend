@@ -626,6 +626,40 @@ def _policy_applies(policy: CachedPolicy, agent: Agent) -> bool:
     return agent.id in policy.agent_ids
 
 
+TOOL_SET_APPROVAL = "No policy rule. The tool set requires approval for this tool."
+TOOL_SET_ALLOW = "No policy rule. The tool set allows this tool."
+
+
+async def tool_set_fallback(session: AsyncSession, agent: Agent, tool_name: str) -> EvaluationResult | None:
+    """The decision when no policy has a rule for the tool: what the agent's tool set says.
+
+    None when the agent has no tool set or the tool is not in it. Read on every call, never
+    cached, so a change to the tool set applies to the next call and to pending approvals.
+    """
+    if not getattr(agent, "tool_set_id", None):
+        return None
+    from app.models import ToolSet, ToolSetItem
+
+    approval = await session.scalar(
+        select(ToolSetItem.approval)
+        .join(ToolSet, ToolSet.id == ToolSetItem.tool_set_id)
+        .join(Tool, Tool.id == ToolSetItem.tool_id)
+        .where(
+            ToolSetItem.tool_set_id == agent.tool_set_id,
+            ToolSet.organization_id == agent.organization_id,
+            Tool.organization_id == agent.organization_id,
+            Tool.name == tool_name,
+            Tool.status == "active",
+        )
+        .limit(1)
+    )
+    if approval is None:
+        return None
+    if approval:
+        return EvaluationResult(decision=PolicyDecision.APPROVAL_REQUIRED, reason=TOOL_SET_APPROVAL)
+    return EvaluationResult(decision=PolicyDecision.ALLOW, reason=TOOL_SET_ALLOW)
+
+
 class PolicyEngine:
     def __init__(self) -> None:
         self.cache = PolicyCache()
@@ -674,6 +708,12 @@ class PolicyEngine:
                 # across policies, so one policy's priority cannot pre-empt
                 # another's rules; the merge below keeps the most restrictive.
                 opinions.append(_stamp(evaluate_rules(tool_rules, arguments), policy))
+        if not opinions:
+            # No policy has a rule for this tool. The agent's tool set decides: each tool there is
+            # set to need approval or not. A tool outside the set keeps the old default.
+            fallback = await tool_set_fallback(session, agent, tool_name)
+            if fallback is not None:
+                return fallback
         if not opinions and applicable:
             opinions.append(EvaluationResult(decision=PolicyDecision.DENY, reason="No policy rule"))
         result = merge_results(opinions)
