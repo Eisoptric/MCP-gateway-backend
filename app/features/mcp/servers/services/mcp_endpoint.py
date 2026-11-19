@@ -15,6 +15,8 @@ ALLOWED_MCP_HOSTS = frozenset(
         "run.googleapis.com",
         "redis.googleapis.com",
         "sqladmin.googleapis.com",
+        "api.alphaxiv.org",
+        "mcp.withwandb.com",
         "mcp.cloudflare.com",
         "mcp.mercury.com",
         "mcp.ether.fi",
