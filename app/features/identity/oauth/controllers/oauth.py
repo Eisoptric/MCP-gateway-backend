@@ -113,7 +113,8 @@ def _page(title: str, body: str, status_code: int = 200, *, wide: bool = False, 
     .card strong {{ display: block; color: #111110; font-size: 14px; }}
     .card p, .note {{ margin: 4px 0 0; }}
     label {{ display: block; margin-top: 14px; font-size: 12px; color: #5c5c57; }}
-    input {{ width: 100%; box-sizing: border-box; margin-top: 6px; height: 36px; border: 1px solid #e6e6e1; border-radius: 8px; background: #fff; padding: 0 10px; }}
+    /* 16px: iOS Safari zooms into any field with smaller text and stays zoomed. */
+    input {{ width: 100%; box-sizing: border-box; margin-top: 6px; height: 40px; border: 1px solid #e6e6e1; border-radius: 8px; background: #fff; padding: 0 10px; font: inherit; font-size: 16px; }}
     .legal {{ margin-top: 22px; font-size: 12px; line-height: 1.6; }}
     .legal a {{ color: #111110; }}
     .row {{ display: flex; gap: 8px; margin-top: 18px; }}
@@ -553,12 +554,22 @@ def _cross_site(request: Request):
     consent session behind; the victim's next agent would then be connected to the attacker's
     workspace. A browser states where a POST came from, and a cross-site one cannot hide it.
     Clients that send neither header are not browsers and cannot be used this way.
+
+    These pages send Referrer-Policy: no-referrer, so WebKit (every browser on iOS) posts their
+    forms with `Origin: null`. A null origin is accepted only when Sec-Fetch-Site says the post
+    came from this same origin: another site can also make its origin null, but its post is
+    always marked cross-site.
     """
     from app.features.identity.auth.controllers.deps import _origin_of, _trusted_origins
 
     site = (request.headers.get("sec-fetch-site") or "").strip().lower()
     origin = (request.headers.get("origin") or "").strip()
-    foreign = site == "cross-site" or (bool(origin) and _origin_of(origin) not in _trusted_origins(request))
+    if site == "cross-site":
+        foreign = True
+    elif origin.lower() == "null":
+        foreign = site != "same-origin"
+    else:
+        foreign = bool(origin) and _origin_of(origin) not in _trusted_origins(request)
     if not foreign:
         return None
     return _page("Saturn", "<h1>無法連線</h1><p>Start again from the agent to sign in.</p>", 403)

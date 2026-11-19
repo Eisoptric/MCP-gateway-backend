@@ -29,6 +29,31 @@ async def test_oauth_sign_in_forms_are_refused_from_another_site(client, path):
     assert flagged.status_code == 403, flagged.text
 
 
+@pytest.mark.parametrize("site", ["same-site", "cross-site", ""])
+async def test_a_null_origin_is_refused_unless_the_browser_says_same_origin(client, site):
+    client.headers.pop("Authorization", None)
+    body = {**_FORM, "email": "rick@saturn.ai", "password": "saturn"}
+    headers = {"Origin": "null", **({"Sec-Fetch-Site": site} if site else {})}
+    refused = await client.post("/oauth/login", data=body, headers=headers, follow_redirects=False)
+    assert refused.status_code == 403, refused.text
+
+
+async def test_ios_safari_signs_in_from_the_page_s_own_form(client):
+    """WebKit posts a no-referrer page's form with Origin: null, and marks it same-origin."""
+    client.headers.pop("Authorization", None)
+    body = {**_FORM, "email": "rick@saturn.ai", "password": "saturn"}
+    own = await client.post(
+        "/oauth/login", data=body, headers={"Origin": "null", "Sec-Fetch-Site": "same-origin"}, follow_redirects=False
+    )
+    assert own.status_code == 303, own.text
+
+
+async def test_sign_in_fields_are_large_enough_that_ios_does_not_zoom(client):
+    client.headers.pop("Authorization", None)
+    page = await client.get("/oauth/authorize", params=_FORM)
+    assert "font-size: 16px" in page.text
+
+
 async def test_the_oauth_sign_in_page_still_signs_in_from_its_own_origin(client):
     client.headers.pop("Authorization", None)
     body = {**_FORM, "email": "rick@saturn.ai", "password": "saturn"}

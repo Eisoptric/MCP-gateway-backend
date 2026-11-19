@@ -13,6 +13,8 @@ Notable changes to Saturn Backend. The format follows [Keep a Changelog](https:/
 
 ### Fixed
 
+- Signing in to connect an agent failed on iOS with "Start again from the agent to sign in". The sign-in pages send `Referrer-Policy: no-referrer`, so WebKit posts their forms with `Origin: null`, which the cross-site check refused. A null origin is now accepted when `Sec-Fetch-Site` is `same-origin`; with any other value, or none, it is still refused.
+- The OAuth sign-in fields use 16px text, so iOS no longer zooms into them.
 - Sixteen marketplace servers could not be connected because their hosts were missing from `ALLOWED_MCP_HOSTS`: Google Sheets, Docs, Slides and Drive, Canva, Figma, Adobe, Microsoft 365, Etherscan, Vercel, Indeed, Spotify, Booking.com, Sumsub, Northwest Registered Agent and Plaid. Their hosts are added, and so is `mcp.slack.com`, Slack's fixed MCP endpoint.
 
 ### Changed
