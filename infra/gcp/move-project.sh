@@ -114,6 +114,15 @@ project_role() {
 
 ensure_sa() {
   if ! gcloud iam service-accounts describe "$(email "$1")" --project "${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+    # A project may create only a few service accounts a minute, so wait out the quota and try again.
+    local attempt
+    for attempt in 1 2 3 4; do
+      if gcloud iam service-accounts create "$1" --project "${GCP_PROJECT_ID}" --display-name "$2" >/dev/null; then
+        return 0
+      fi
+      echo "Retrying in 65s: service account $1" >&2
+      sleep 65
+    done
     gcloud iam service-accounts create "$1" --project "${GCP_PROJECT_ID}" --display-name "$2" >/dev/null
   fi
 }
