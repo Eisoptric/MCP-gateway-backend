@@ -236,12 +236,7 @@ sys.stdout.write(f"postgresql+asyncpg://gateway:{password}@/gateway?host=/clouds
   if ! secret_exists SEED_USER_EMAIL "${GCP_PROJECT_ID}"; then
     printf '%s' "${SEED_USER_EMAIL}" | put_secret SEED_USER_EMAIL
   fi
-  if ! secret_exists SEED_USER_PASSWORD "${GCP_PROJECT_ID}"; then
-    read -r -s -p "Password for the first admin (${SEED_USER_EMAIL}): " seed_password
-    echo
-    printf '%s' "${seed_password}" | put_secret SEED_USER_PASSWORD
-    unset seed_password
-  fi
+  # No password: the first admin signs up by email at SEED_USER_EMAIL and is promoted then.
 
   say "Cloud KMS MAC key"
   gcloud kms keyrings describe "${KMS_KEYRING}" --location "${REGION}" --project "${GCP_PROJECT_ID}" >/dev/null 2>&1 ||
@@ -274,7 +269,7 @@ sys.stdout.write(f"postgresql+asyncpg://gateway:{password}@/gateway?host=/clouds
 
   # The backend's runtime identity: its secrets by name, MAC signing on the one key, Cloud SQL.
   GCP_PROJECT_ID="${GCP_PROJECT_ID}" GATEWAY_KMS_KEY="${KMS_KEY}" DEPLOYER_SA="$(email github-deployer-backend)" \
-    RUNTIME_SECRETS="DATABASE_URL REDIS_URL REDIS_CA GATEWAY_GITHUB_OAUTH_CLIENT_ID GATEWAY_GITHUB_OAUTH_CLIENT_SECRET GATEWAY_GOOGLE_OAUTH_CLIENT_ID GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET RESEND_API_KEY RESEND_FROM POLICY_LLM_BASE_URL POLICY_LLM_API_KEY POLICY_LLM_MODEL ORIGIN_AUTH_SECRET CONSOLE_PROXY_SECRET SEED_USER_EMAIL SEED_USER_PASSWORD" \
+    RUNTIME_SECRETS="DATABASE_URL REDIS_URL REDIS_CA GATEWAY_GITHUB_OAUTH_CLIENT_ID GATEWAY_GITHUB_OAUTH_CLIENT_SECRET GATEWAY_GOOGLE_OAUTH_CLIENT_ID GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET RESEND_API_KEY RESEND_FROM POLICY_LLM_BASE_URL POLICY_LLM_API_KEY POLICY_LLM_MODEL ORIGIN_AUTH_SECRET CONSOLE_PROXY_SECRET SEED_USER_EMAIL" \
     bash "${HERE}/runtime-service-account.sh"
 
   for runtime in gateway-frontend-runtime gateway-dashboard-runtime; do
@@ -356,7 +351,8 @@ Done with setup. Next, in this order:
      ORIGIN_AUTH_SECRET (gcloud secrets versions access latest --secret ORIGIN_AUTH_SECRET --project ${GCP_PROJECT_ID}).
   2. Deploy ${BACKEND_REPO} from main, then ${FRONTEND_REPO} and ${DASHBOARD_REPO}.
   3. Point api.eisoptric.com and console.eisoptric.com at the new services, the way the old ones were.
-  4. Sign in as ${SEED_USER_EMAIL}, then: GCP_PROJECT_ID=${GCP_PROJECT_ID} bash infra/gcp/move-project.sh after-first-deploy
+  4. Sign up as ${SEED_USER_EMAIL} in the console (the emailed code makes it the platform admin),
+     then: GCP_PROJECT_ID=${GCP_PROJECT_ID} bash infra/gcp/move-project.sh after-first-deploy
 EOF
 }
 
@@ -377,7 +373,7 @@ after_first_deploy() {
 
   say "First admin: stop mounting the seed and disable its values"
   github_variable "${BACKEND_REPO}" SEED_ON_DEPLOY false
-  for name in SEED_USER_EMAIL SEED_USER_PASSWORD; do
+  for name in SEED_USER_EMAIL; do
     for version in $(gcloud secrets versions list "${name}" --project "${GCP_PROJECT_ID}" --filter state=ENABLED --format='value(name.basename())'); do
       gcloud secrets versions disable "${version}" --secret "${name}" --project "${GCP_PROJECT_ID}" >/dev/null
     done

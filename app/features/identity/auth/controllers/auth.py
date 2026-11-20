@@ -279,6 +279,7 @@ async def register(body: RegisterRequest, request: Request, response: Response, 
         password=password,
         organization=body.organization,
     )
+    await auth_service.promote_seed_admin(session, user)
     user.locale = normalize_locale(body.locale)
     return await _issue_login(session, request, response, user)
 

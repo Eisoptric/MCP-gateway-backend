@@ -208,14 +208,13 @@ Backend only:
 | `MIGRATIONS_JOB_NAME` | variable | `gateway-migrate` |
 | `MIGRATIONS_DATABASE_URL_SECRET` | variable, secret name holding a schema-owner DSN | `DATABASE_URL` |
 | `MIGRATIONS_SERVICE_ACCOUNT` | variable | `RUNTIME_SERVICE_ACCOUNT` |
-| `SEED_ON_DEPLOY` | variable, `true` to mount `SEED_USER_*` on the API | not mounted |
+| `SEED_ON_DEPLOY` | variable, `true` to mount `SEED_USER_EMAIL` on the API | not mounted |
 | `REDIS_URL_SECRET` | variable, secret name holding `REDIS_URL` | `REDIS_URL` |
 | `REDIS_CA_SECRET` | variable, secret name holding the Memorystore server CA (PEM) | no CA mounted |
 | `LEGACY_PASSWORD_UNTIL` | variable, `YYYY-MM-DD` | legacy (pre-argon2) passwords refused; set it only while accounts from before 2026-10-16 remain |
 | `IMAGE_ATTESTATIONS` | variable, `true` for provenance and SBOM | no attestations |
 | `CONSOLE_PROXY_SECRET_NAME` | variable, secret name shared with the console (set the same variable on Frontend) | console users share the per-address login limits |
 | `DEFAULT_ORG_ID`, `DEFAULT_ACTOR_ID` | variable | `org_default`, `user_operator` |
-| `SEED_USER_NAME` | variable | `Admin` |
 | `SESSION_TTL_DAYS` | variable | `7` |
 | Provisioning: `CLOUD_SQL_*`, `REDIS_INSTANCE`, `REDIS_TIER`, `REDIS_SIZE_GB`, `VPC_NETWORK`, `SERVERLESS_VPC_CONNECTOR_RANGE`, `SETUP_RUNTIME_SERVICE_ACCOUNT` | variable | see [Provision data plane](#provision-data-plane) |
 
@@ -233,7 +232,7 @@ table below), so the deploy job never reads their values:
 | `GATEWAY_GITHUB_OAUTH_CLIENT_ID` / `_SECRET`, `GATEWAY_GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | for social sign-in |
 | `RESEND_API_KEY`, `RESEND_FROM` | for email |
 | `POLICY_LLM_BASE_URL`, `POLICY_LLM_API_KEY`, `POLICY_LLM_MODEL` | for policy drafting: an OpenAI-compatible `/chat/completions` endpoint, its key and the model name; drafting is off without them |
-| `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` | only read when `SEED_ON_DEPLOY=true` |
+| `SEED_USER_EMAIL` | only read when `SEED_ON_DEPLOY=true` |
 
 GitHub repository secrets with those names are left over from before the move to Secret Manager.
 Nothing reads them; delete them. The same goes for `GATEWAY_KEM_SEED`, which the app stopped reading
@@ -265,7 +264,7 @@ unmounted.
 | `POLICY_LLM_API_KEY` | yes | no | no |
 | `ORIGIN_AUTH_SECRET` | yes | no (internal ingress; fails closed) | no |
 | `CONSOLE_PROXY_SECRET_NAME` (when set) | yes | no | no |
-| `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` | only with `SEED_ON_DEPLOY=true` | no | no |
+| `SEED_USER_EMAIL` | only with `SEED_ON_DEPLOY=true` | no | no |
 
 ## Deploy
 
@@ -307,8 +306,8 @@ links billing and enables the APIs, then:
 - copies `SATURN_GITHUB_OAUTH_*` and `SATURN_GOOGLE_OAUTH_*` to their `GATEWAY_` names, and
   `RESEND_*` and `POLICY_LLM_*` as they are, from the old project without printing them; a secret
   the old project lacks is skipped;
-- makes new random `ORIGIN_AUTH_SECRET` and `CONSOLE_PROXY_SECRET` values, and asks for the first
-  admin's password (`SEED_USER_PASSWORD`);
+- makes new random `ORIGIN_AUTH_SECRET` and `CONSOLE_PROXY_SECRET` values, and stores the first
+  admin's address as `SEED_USER_EMAIL` (no password: the admin signs up by email);
 - creates the Cloud KMS MAC key `gateway/kem-root` (HMAC-SHA256, `KMS_PROTECTION_LEVEL`, default
   `software`), the Workload Identity pool and provider, the deploy and runtime identities as in
   [Identities](#identities) (with `runtime-service-account.sh` for `gateway-runtime`), and sets the
@@ -320,10 +319,10 @@ first deploy. Then:
 1. Point the Cloudflare Transform Rule's `X-Eisoptric-Origin-Auth` at the new `ORIGIN_AUTH_SECRET`.
 2. Deploy Backend, then Frontend, then Ops, from `main`.
 3. Point `api.eisoptric.com` and `console.eisoptric.com` at the new services.
-4. Sign in as the first admin, then run
+4. Sign up at `SEED_USER_EMAIL` in the console (the emailed code makes it the platform admin), then run
    `GCP_PROJECT_ID=eisoptric-prod NEW_PROJECT_ID=eisoptric-prod bash infra/gcp/move-project.sh after-first-deploy`.
    It narrows each deployer to `roles/run.admin` on its own services, sets `SEED_ON_DEPLOY=false`
-   and disables the seed secrets' versions. Deploy Backend once more, and run `uptime-checks.sh`.
+   and disables the `SEED_USER_EMAIL` versions. Deploy Backend once more, and run `uptime-checks.sh`.
 
 The Google OAuth client still lives in the old project, so sign-in with Google works only while
 that project is up: create a new client in the new project, update `GATEWAY_GOOGLE_OAUTH_*`, and
@@ -362,7 +361,7 @@ Redis needs no IAM: access is by network plus AUTH.
 
    Add `RUNTIME_SECRETS="... REDIS_URL_TLS REDIS_CA"` (the defaults plus any extra names) when you
    use `REDIS_URL_SECRET` / `REDIS_CA_SECRET` or `MIGRATIONS_DATABASE_URL_SECRET`. Add
-   `SEED_USER_EMAIL SEED_USER_PASSWORD` only while `SEED_ON_DEPLOY=true`.
+   `SEED_USER_EMAIL` only while `SEED_ON_DEPLOY=true`.
 2. Set the GitHub variable `RUNTIME_SERVICE_ACCOUNT` to the printed email and deploy. The migration
    job uses the same account unless `MIGRATIONS_SERVICE_ACCOUNT` is set.
 3. Check both services serve and the worker delivers webhooks, then remove project-wide access from
@@ -629,11 +628,15 @@ to the new version. Remove the variable and deploy again afterwards.
 
 ### Seeding the first admin
 
-`SEED_USER_EMAIL` / `SEED_USER_PASSWORD` are mounted on the API only when `SEED_ON_DEPLOY=true`.
-For a new project, set it for the first deploy and sign in. Then unset it and deploy again, and
-disable each secret version (`gcloud secrets versions list SEED_USER_PASSWORD`, then
-`gcloud secrets versions disable VERSION --secret SEED_USER_PASSWORD`, and the same for
-`SEED_USER_EMAIL`).
+No admin password is configured anywhere. `SEED_USER_EMAIL` is mounted on the API only when
+`SEED_ON_DEPLOY=true`. While the platform has no platform admin, an email sign-up at that address
+becomes one: the emailed code proves the address, and the promotion is written to the audit log
+as `platform_admin_bootstrapped`. Once any platform admin exists, nothing is promoted again, so a
+demotion sticks.
+
+For a new project, set `SEED_ON_DEPLOY=true` for the first deploy and sign up at that address.
+Then unset it, deploy again, and disable the secret's versions (`gcloud secrets versions list
+SEED_USER_EMAIL`, then `gcloud secrets versions disable VERSION --secret SEED_USER_EMAIL`).
 An existing project already has its admin and needs nothing.
 
 ### Legacy passwords

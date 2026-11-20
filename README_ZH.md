@@ -125,11 +125,11 @@ app/
 ```bash
 cp .env.example .env
 # 填入 POSTGRES_PASSWORD 與 REDIS_PASSWORD（例如 `openssl rand -hex 16`）、
-# SEED_USER_EMAIL 與 SEED_USER_PASSWORD，並加上 GATEWAY_KMS_KEY。
+# SEED_USER_EMAIL、RESEND_API_KEY 與 RESEND_FROM，並加上 GATEWAY_KMS_KEY。
 docker compose up --build
 ```
 
-第一次啟動前，先在 `.env` 設定 `SEED_USER_EMAIL` 與 `SEED_USER_PASSWORD`，這兩個值會建立平台管理員。不要 commit 它們。沒有設定 `POSTGRES_PASSWORD` 與 `REDIS_PASSWORD` 時，Compose 會拒絕啟動。
+在 `.env` 設定 `SEED_USER_EMAIL`，然後在主控台用這個地址註冊。Email 驗證碼證明地址屬於你，平台還沒有管理員時，這個帳號就會成為平台管理員。註冊要透過 Resend 寄驗證碼，所以必須設定 `RESEND_API_KEY` 與 `RESEND_FROM`。管理員密碼從不寫進設定。沒有設定 `POSTGRES_PASSWORD` 與 `REDIS_PASSWORD` 時，Compose 會拒絕啟動。
 
 - API：http://localhost:8000
 - 文件：http://localhost:8000/docs（在 Cloud Run 上，或任何設定 `EXPOSE_API_DOCS=false` 的環境中關閉）
@@ -144,7 +144,7 @@ Postgres 與 Redis 只監聽 127.0.0.1。API 容器以非特權使用者（uid 1
 ```bash
 TOKEN=$(curl -s -X POST localhost:8000/auth/login \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"$SEED_USER_EMAIL\",\"password\":\"$SEED_USER_PASSWORD\"}" | python -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+  -d "{\"email\":\"$SEED_USER_EMAIL\",\"password\":\"$YOUR_PASSWORD\"}" | python -c 'import sys,json; print(json.load(sys.stdin)["token"])')
 
 curl -s localhost:8000/auth/me -H "Authorization: Bearer $TOKEN"
 ```
@@ -287,8 +287,7 @@ Agent 錢包與 x402 付款已經移除（遷移 `039_drop_wallets_x402`）。
 | `LOG_FORMAT` | Cloud Run 上為 `json`，其他為 `text` | 每行一個 JSON 物件，含 `severity`、`request_id` 與 Cloud Trace id，或純文字。每個請求記錄一行：方法、路徑、狀態碼、耗時；query string 一律不記錄。 |
 | `DEFAULT_ORG_ID` | `org_default` | Bootstrap 組織的 ID |
 | `DEFAULT_ACTOR_ID` | `user_operator` | Bootstrap 平台管理員的 ID |
-| `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` | 空 | 第一次啟動時建立平台管理員；留空則略過。在 Cloud Run 上密碼必須至少 16 個字元。 |
-| `SEED_USER_NAME` | `Admin` | 它的顯示名稱 |
+| `SEED_USER_EMAIL` | 空 | 用這個地址以 Email 註冊的帳號，在平台還沒有任何管理員時成為第一位平台管理員。留空則不升級任何人。 |
 | `SKIP_DB_BOOTSTRAP` | `false` | `true` 會略過初始資料與啟動時的資料庫工作 |
 | `SESSION_TTL_DAYS` | `7` | 工作階段的有效天數；24 小時沒有請求的工作階段也會結束 |
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://console.eisoptric.com,https://ops.eisoptric.com` | 允許的瀏覽器來源，也是 cookie 請求與 passkey 信任的來源 |
