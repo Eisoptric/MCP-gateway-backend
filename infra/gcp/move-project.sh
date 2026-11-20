@@ -352,7 +352,7 @@ Done with setup. Next, in this order:
      ORIGIN_AUTH_SECRET (gcloud secrets versions access latest --secret ORIGIN_AUTH_SECRET --project ${GCP_PROJECT_ID}).
   2. Deploy ${BACKEND_REPO} from main, then set ${DASHBOARD_REPO}'s BACKEND_PUBLIC_URL to the new
      gateway-backend URL, then deploy ${FRONTEND_REPO} and ${DASHBOARD_REPO}.
-  3. Point api.eisoptric.com and dashboard.eisoptric.com at the new services, the way the old ones were.
+  3. Point api.eisoptric.com and console.eisoptric.com at the new services, the way the old ones were.
   4. Sign in as ${SEED_USER_EMAIL}, then: GCP_PROJECT_ID=${GCP_PROJECT_ID} bash infra/gcp/move-project.sh after-first-deploy
 EOF
 }

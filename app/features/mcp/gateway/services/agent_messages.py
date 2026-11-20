@@ -7,7 +7,7 @@ from typing import Any
 POLICY_DENIED = "This tool call was denied by policy."
 NO_APPLICABLE_POLICY = "No policy applies to this tool call."
 APPROVAL_ARGS_MISMATCH = "These arguments do not match the approved call."
-_DASHBOARD = "https://dashboard.eisoptric.com"
+_DASHBOARD = "https://console.eisoptric.com"
 
 
 def approval_pending(tool_name: str, run_id: str) -> str:

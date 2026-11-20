@@ -150,7 +150,7 @@ def test_task_notice_does_not_include_secrets():
         "completed",
         "Refund 50 for Acme",
         "Acme Ops",
-        "https://dashboard.eisoptric.com/activity?event=run_1",
+        "https://console.eisoptric.com/activity?event=run_1",
         "en-US",
         lines=lines,
         detail="",
@@ -158,4 +158,4 @@ def test_task_notice_does_not_include_secrets():
     assert "sk_live_secret" not in text
     assert "sk_live_secret" not in html
     assert "Task completed" in text
-    assert "https://dashboard.eisoptric.com/activity?event=run_1" in html
+    assert "https://console.eisoptric.com/activity?event=run_1" in html

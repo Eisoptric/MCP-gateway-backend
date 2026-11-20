@@ -220,7 +220,7 @@ Backend only:
 | Provisioning: `CLOUD_SQL_*`, `REDIS_INSTANCE`, `REDIS_TIER`, `REDIS_SIZE_GB`, `VPC_NETWORK`, `SERVERLESS_VPC_CONNECTOR_RANGE`, `SETUP_RUNTIME_SERVICE_ACCOUNT` | variable | see [Provision data plane](#provision-data-plane) |
 
 The public origins are fixed in the workflows, not read from GitHub: the backend sets
-`PUBLIC_WS_URL=https://api.eisoptric.com` and `CORS_ORIGINS=https://dashboard.eisoptric.com`, and the
+`PUBLIC_WS_URL=https://api.eisoptric.com` and `CORS_ORIGINS=https://console.eisoptric.com`, and the
 frontend builds with `API_URL=https://api.eisoptric.com`. Change them in the workflow files.
 
 Runtime secrets live in **Secret Manager**, not GitHub. Cloud Run mounts them directly (see the
@@ -319,7 +319,7 @@ first deploy. Then:
 
 1. Point the Cloudflare Transform Rule's `X-Eisoptric-Origin-Auth` at the new `ORIGIN_AUTH_SECRET`.
 2. Deploy Backend, then Frontend, then Dashboard, from `main`.
-3. Point `api.eisoptric.com` and `dashboard.eisoptric.com` at the new services.
+3. Point `api.eisoptric.com` and `console.eisoptric.com` at the new services.
 4. Sign in as the first admin, then run
    `GCP_PROJECT_ID=eisoptric-prod NEW_PROJECT_ID=eisoptric-prod bash infra/gcp/move-project.sh after-first-deploy`.
    It narrows each deployer to `roles/run.admin` on its own services, sets `SEED_ON_DEPLOY=false`
@@ -559,7 +559,7 @@ terminal. Then update the `DATABASE_URL` secret and redeploy.
 
 ### Ingress: Cloudflare on the free plan
 
-Cloudflare (free plan) proxies `api.eisoptric.com` and `dashboard.eisoptric.com` straight to the
+Cloudflare (free plan) proxies `api.eisoptric.com` and `console.eisoptric.com` straight to the
 services' public Cloud Run addresses, so both deploy with ingress `all`. There is no Google load
 balancer or Cloud Armor policy in front of them: on the free plan they would cost more than the rest
 of the deployment, and Cloudflare's own WAF, bot and rate rules apply only to traffic it proxies.
@@ -592,7 +592,7 @@ Cloudflare free plan, Bot Fight Mode challenges GitHub-hosted runners with a 403
 exempt a request from it. Requests from Google Cloud pass: the worker checks the API through its
 public address every minute, and those checks succeed.
 
-`uptime-checks.sh` creates, for each of `api.eisoptric.com` and `dashboard.eisoptric.com`:
+`uptime-checks.sh` creates, for each of `api.eisoptric.com` and `console.eisoptric.com`:
 
 - an uptime check on `https://<host>/health` every 5 minutes from three regions, which passes only
   on a 200 with a valid certificate, and

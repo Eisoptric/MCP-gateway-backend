@@ -550,7 +550,7 @@ async def test_a_sign_in_link_opened_in_another_browser_stores_nothing(client, m
 def test_browser_cookie_reaches_the_callback_host():
     from app.features.mcp.oauth.services.mcp_oauth import browser_cookie_domain
 
-    assert browser_cookie_domain("https://dashboard.eisoptric.com", "https://api.eisoptric.com") == "eisoptric.com"
+    assert browser_cookie_domain("https://console.eisoptric.com", "https://api.eisoptric.com") == "eisoptric.com"
     assert browser_cookie_domain("https://api.eisoptric.com", "https://api.eisoptric.com") is None
     assert browser_cookie_domain("http://localhost:3000", "http://localhost:8000") is None
     assert browser_cookie_domain("https://a.example.com", "https://b.other.com") is None
