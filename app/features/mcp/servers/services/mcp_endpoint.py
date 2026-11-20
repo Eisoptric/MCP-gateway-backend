@@ -63,6 +63,7 @@ ALLOWED_MCP_HOSTS = frozenset(
         "huggingface.co",
         "mcp.neon.tech",
         "mcp.supabase.com",
+        "mcp.resend.com",
     }
 )
 
