@@ -159,7 +159,7 @@ setup() {
       "") ;;
       *) echo "PROJECT_PARENT must be organizations/ID or folders/ID" >&2; exit 1 ;;
     esac
-    gcloud projects create "${GCP_PROJECT_ID}" --name "Eisoptric" "${parent[@]}"
+    gcloud projects create "${GCP_PROJECT_ID}" --name "Eisoptric" ${parent[@]+"${parent[@]}"}
   fi
   gcloud billing projects link "${GCP_PROJECT_ID}" --billing-account "${BILLING_ACCOUNT}" >/dev/null
   gcloud services enable --project "${GCP_PROJECT_ID}" \
