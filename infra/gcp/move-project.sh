@@ -182,7 +182,7 @@ setup() {
     CLOUD_SQL_USER=gateway CLOUD_SQL_TIER="${CLOUD_SQL_TIER:-db-g1-small}" \
     CLOUD_SQL_AVAILABILITY_TYPE="${CLOUD_SQL_AVAILABILITY_TYPE:-zonal}" CLOUD_SQL_BACKUP_START_TIME=18:00 \
     REDIS_INSTANCE=gateway-redis REDIS_TIER=BASIC REDIS_SIZE_GB=1 VPC_NETWORK=default \
-    VPC_CONNECTOR=gateway-vpc VPC_CONNECTOR_RANGE=10.8.0.0/28 SETUP_RUNTIME_SERVICE_ACCOUNT=false \
+    VPC_CONNECTOR=gateway-vpc VPC_CONNECTOR_RANGE="${VPC_CONNECTOR_RANGE:-10.9.0.0/28}" SETUP_RUNTIME_SERVICE_ACCOUNT=false \
     bash "${HERE}/bootstrap.sh"
   connection="$(gcloud sql instances describe gateway-pg --project "${GCP_PROJECT_ID}" --format='value(connectionName)')"
 
@@ -320,7 +320,7 @@ sys.stdout.write(f"postgresql+asyncpg://gateway:{password}@/gateway?host=/clouds
   github_variable "${FRONTEND_REPO}" FRONTEND_CLOUD_RUN_SERVICE gateway-frontend
   github_variable "${DASHBOARD_REPO}" DASHBOARD_CLOUD_RUN_SERVICE gateway-dashboard
   github_variable "${BACKEND_REPO}" REDIS_URL_SECRET REDIS_URL
-  github_variable "${BACKEND_REPO}" SERVERLESS_VPC_CONNECTOR_RANGE 10.8.0.0/28
+  github_variable "${BACKEND_REPO}" SERVERLESS_VPC_CONNECTOR_RANGE "${VPC_CONNECTOR_RANGE:-10.9.0.0/28}"
   if [[ "${GITHUB_SETUP}" == "true" ]]; then
     gh variable delete SATURN_KMS_KEY -R "${GITHUB_ORG}/${BACKEND_REPO}" 2>/dev/null || true
   else
