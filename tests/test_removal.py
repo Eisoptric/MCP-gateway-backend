@@ -2,7 +2,7 @@ async def test_only_admins_can_remove_agents_and_mcp_servers(client):
     invited = await client.post(
         "/org/invites",
         json={
-            "email": "operator@saturn.ai",
+            "email": "operator@example.com",
             "name": "Operator",
             "title": "Operator",
             "role": "operator",

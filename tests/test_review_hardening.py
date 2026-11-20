@@ -23,14 +23,14 @@ async def test_reset_codes_stop_after_the_daily_cap(client):
         session.add(
             AuthThrottle(
                 id=f"thr_test_{index}",
-                bucket="email-all:reset:capped@saturn.ai",
+                bucket="email-all:reset:capped@example.com",
                 created_at=utcnow() - timedelta(hours=1, minutes=index),
             )
         )
     await session.commit()
     await gen.aclose()
     client.headers.pop("Authorization", None)
-    refused = await client.post("/auth/forgot-password", json={"email": "capped@saturn.ai"})
+    refused = await client.post("/auth/forgot-password", json={"email": "capped@example.com"})
     assert refused.status_code == 429, refused.text
 
 
@@ -45,13 +45,13 @@ async def test_agent_registrations_do_not_use_up_sign_up(client):
     client.headers.pop("Authorization", None)
     signup = await client.post(
         "/auth/register/code",
-        json={"name": "New", "email": "fresh-signup@saturn.ai", "password": "password1"},
+        json={"name": "New", "email": "fresh-signup@example.com", "password": "password1"},
     )
     assert signup.status_code != 429, signup.text
 
 
 async def test_org_admin_cannot_disable_a_platform_admin(client):
-    invited = await client.post("/org/invites", json={"email": "second-admin@saturn.ai", "name": "Second", "role": "admin"})
+    invited = await client.post("/org/invites", json={"email": "second-admin@example.com", "name": "Second", "role": "admin"})
     assert invited.status_code == 201, invited.text
     accepted = await client.post("/auth/accept-invite", json={"token": invited.json()["token"], "password": "password1"})
     headers = {"Authorization": f"Bearer {accepted.json()['token']}"}
@@ -67,7 +67,7 @@ async def test_mcp_sign_in_result_goes_only_to_console_origins(client):
     page = await client.get("/mcp-servers/oauth/callback", params={"state": "unknown", "code": "x"})
     assert page.status_code == 200
     assert '"*"' not in page.text
-    assert "https://dashboard.saturn-core.com" in page.text
+    assert "https://dashboard.eisoptric.com" in page.text
 
 
 async def test_oauth_pages_submit_each_form_once(client):

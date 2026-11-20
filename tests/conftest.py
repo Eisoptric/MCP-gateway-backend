@@ -4,8 +4,8 @@ os.environ["SKIP_DB_BOOTSTRAP"] = "true"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite://"
 os.environ["IN_PROCESS_RUNTIME"] = "true"
 os.environ["POLICY_DEFAULT_DENY"] = "false"
-os.environ["SEED_USER_EMAIL"] = "rick@saturn.ai"
-os.environ["SEED_USER_PASSWORD"] = "saturn"
+os.environ["SEED_USER_EMAIL"] = "rick@example.com"
+os.environ["SEED_USER_PASSWORD"] = "gateway"
 os.environ["SEED_USER_NAME"] = "Rick"
 
 from app.features.credentials.vault.services.pq_crypto import install_root
@@ -99,14 +99,14 @@ async def client():
 
     app.dependency_overrides[get_session] = override_session
     mcp_gateway.reset()
-    from app.features.mcp.saturn.services.mcp_sessions import mcp_sessions
+    from app.features.mcp.gateway.services.mcp_sessions import mcp_sessions
 
     mcp_sessions.reset()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as async_client:
         login = await async_client.post(
             "/auth/login",
-            json={"email": "rick@saturn.ai", "password": "saturn"},
+            json={"email": "rick@example.com", "password": "gateway"},
         )
         assert login.status_code == 200, login.text
         async_client.headers["Authorization"] = f"Bearer {login.json()['token']}"

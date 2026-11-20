@@ -54,7 +54,7 @@ class PasskeyService:
         existing = await self.list_passkeys(session, user)
         options = generate_registration_options(
             rp_id=rp_id,
-            rp_name="Saturn",
+            rp_name="Eisoptric",
             user_name=user.email,
             user_id=user.id.encode(),
             user_display_name=user.name,

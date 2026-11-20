@@ -24,7 +24,7 @@ from app.features.credentials.vault.services.pq_crypto import content_key
 from app.features.execution.activity.services.content_seal import open_json, seal_json
 
 SERVER_SEALED = "server-sealed-v1"
-_DIGEST_INFO = b"saturn-approval-digest-v1\n"
+_DIGEST_INFO = b"eisoptric-approval-digest-v1\n"
 
 
 class ArgumentsUnavailable(Exception):

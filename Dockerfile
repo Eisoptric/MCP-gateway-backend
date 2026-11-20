@@ -10,9 +10,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Fixed uid/gid so volume ownership and Kubernetes-style runAsUser checks are stable.
-RUN groupadd --system --gid 10001 saturn \
- && useradd --system --uid 10001 --gid saturn --no-create-home \
-      --home-dir /nonexistent --shell /usr/sbin/nologin saturn
+RUN groupadd --system --gid 10001 gateway \
+ && useradd --system --uid 10001 --gid gateway --no-create-home \
+      --home-dir /nonexistent --shell /usr/sbin/nologin gateway
 
 # Every package, including transitive ones, must match a hash in the lock.
 # Wheels only, so no package runs setup.py at build time.

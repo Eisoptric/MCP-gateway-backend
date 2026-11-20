@@ -119,7 +119,7 @@ class ToolSetService:
         return {"name": name, "agent_ids": sorted(agent_ids)}
 
     def owns_profile(self, user: User, agent: Agent) -> bool:
-        if str((agent.settings or {}).get("origin") or "") != "saturn_mcp":
+        if str((agent.settings or {}).get("origin") or "") != "gateway_mcp":
             return False
         org = user.organization
         expected = profile_identity(
@@ -200,7 +200,7 @@ class ToolSetService:
         await self._notify_tools(agent_ids)
 
     async def _notify_tools(self, agent_ids: list[str]) -> None:
-        from app.features.mcp.saturn.services.mcp_sessions import mcp_sessions
+        from app.features.mcp.gateway.services.mcp_sessions import mcp_sessions
 
         await mcp_sessions.notify(agent_ids)
 

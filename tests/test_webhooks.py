@@ -25,7 +25,7 @@ def _freeze(monkeypatch, moment: datetime) -> None:
 
     for path in (
         "app.features.execution.approvals.services.approval_service.utcnow",
-        "app.features.mcp.saturn.services.saturn_mcp.utcnow",
+        "app.features.mcp.gateway.services.gateway_mcp.utcnow",
         "app.features.execution.approvals.services.expiration.utcnow",
         "app.features.webhooks.services.webhook_service.utcnow",
     ):
@@ -35,7 +35,7 @@ def _freeze(monkeypatch, moment: datetime) -> None:
 def _thaw(monkeypatch) -> None:
     for path in (
         "app.features.execution.approvals.services.approval_service.utcnow",
-        "app.features.mcp.saturn.services.saturn_mcp.utcnow",
+        "app.features.mcp.gateway.services.gateway_mcp.utcnow",
         "app.features.execution.approvals.services.expiration.utcnow",
         "app.features.webhooks.services.webhook_service.utcnow",
     ):
@@ -60,7 +60,7 @@ async def _endpoint(client, monkeypatch, responses=None):
     created = await client.post(
         "/org/webhooks",
         json={
-            "url": "https://hooks.example.com/saturn",
+            "url": "https://hooks.example.com/gateway",
             "events": ["approval.granted", "approval.rejected", "approval.expired"],
         },
     )
@@ -79,7 +79,7 @@ async def _deferred(client, monkeypatch, *, expires_minutes=None, resubmit_minut
         return {"content": [{"type": "text", "text": "ok"}], "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     connected = await client.post(
         "/mcp-servers",
         json={"name": "Payments", "endpoint": "https://mcp.stripe.com/mcp", "authorization": "token-1"},
@@ -152,10 +152,10 @@ def test_signature_rejects_a_different_secret():
 
 
 def test_webhook_urls_block_private_and_metadata_destinations(monkeypatch):
-    assert require_webhook_url("https://hooks.example.com/saturn") == "https://hooks.example.com/saturn"
+    assert require_webhook_url("https://hooks.example.com/gateway") == "https://hooks.example.com/gateway"
     for url in (
-        "http://hooks.example.com/saturn",
-        "https://user:pass@hooks.example.com/saturn",
+        "http://hooks.example.com/gateway",
+        "https://user:pass@hooks.example.com/gateway",
         "https://127.0.0.1/hook",
         "https://10.1.2.3/hook",
         "https://169.254.169.254/",
@@ -173,7 +173,7 @@ def test_webhook_urls_block_private_and_metadata_destinations(monkeypatch):
         lambda _host, _port: ["10.0.0.8"],
     )
     try:
-        require_webhook_url("https://hooks.example.com/saturn")
+        require_webhook_url("https://hooks.example.com/gateway")
     except HTTPException as exc:
         assert exc.status_code == 400
     else:
@@ -202,7 +202,7 @@ async def test_webhook_secret_is_shown_once_and_viewers_cannot_manage_it(client,
     assert blocked.status_code == 400
     invited = await client.post(
         "/org/invites",
-        json={"email": "webhook-view@saturn.ai", "name": "Viewer", "role": "viewer"},
+        json={"email": "webhook-view@example.com", "name": "Viewer", "role": "viewer"},
     )
     assert invited.status_code == 201, invited.text
     accepted = await client.post(
@@ -228,7 +228,7 @@ async def test_delivery_signs_the_body_and_retries_only_retryable_failures(clien
     assert tested.status_code == 200, tested.text
     assert tested.json()["status"] == "delivered"
     body, headers = seen[0]
-    assert sign(created["secret"], headers["Saturn-Webhook-Timestamp"], body) == headers["Saturn-Webhook-Signature"]
+    assert sign(created["secret"], headers["Eisoptric-Webhook-Timestamp"], body) == headers["Eisoptric-Webhook-Signature"]
     assert b"token" not in body
     assert created["secret"].encode() not in body
     disabled = await client.patch(f"/org/webhooks/{created['id']}", json={"enabled": False})
@@ -328,18 +328,18 @@ async def test_pending_and_resubmit_expiration(client, monkeypatch):
     assert timedelta(minutes=14) < resubmit_at - resolved_at <= timedelta(minutes=15, seconds=5)
 
     _freeze(monkeypatch, resubmit_at - timedelta(seconds=2))
-    ran = await _request(client, access, agent_id, {"amount": 5}, run_id=early["error"]["data"]["saturnRunId"])
+    ran = await _request(client, access, agent_id, {"amount": 5}, run_id=early["error"]["data"]["gatewayRunId"])
     assert "result" in ran
     assert calls["n"] == 1
     _thaw(monkeypatch)
-    again = await _request(client, access, agent_id, {"amount": 5}, run_id=early["error"]["data"]["saturnRunId"])
+    again = await _request(client, access, agent_id, {"amount": 5}, run_id=early["error"]["data"]["gatewayRunId"])
     assert "result" in again
     assert calls["n"] == 1
 
     mismatch = await _request(client, access, agent_id, {"amount": 8})
     mismatch_id = mismatch["error"]["data"]["approval_id"]
     assert (await client.post(f"/approvals/{mismatch_id}/approve")).status_code == 200
-    mismatched = await _request(client, access, agent_id, {"amount": 9}, run_id=mismatch["error"]["data"]["saturnRunId"])
+    mismatched = await _request(client, access, agent_id, {"amount": 9}, run_id=mismatch["error"]["data"]["gatewayRunId"])
     assert mismatched["error"]["code"] == -32004
     assert calls["n"] == 1
 
@@ -352,7 +352,7 @@ async def test_pending_and_resubmit_expiration(client, monkeypatch):
     _thaw(monkeypatch)
     revived = await client.post(f"/approvals/{pending_id}/approve")
     assert revived.status_code == 409
-    expired_call = await _request(client, access, agent_id, {"amount": 3}, run_id=pending["error"]["data"]["saturnRunId"])
+    expired_call = await _request(client, access, agent_id, {"amount": 3}, run_id=pending["error"]["data"]["gatewayRunId"])
     assert expired_call["error"]["code"] == -32006
     assert expired_call["error"]["data"]["reason"] == "APPROVAL_EXPIRED"
     assert expired_call["error"]["data"]["phase"] == "pending"
@@ -363,7 +363,7 @@ async def test_pending_and_resubmit_expiration(client, monkeypatch):
     assert (await client.post(f"/approvals/{waiting_id}/approve")).status_code == 200
     waiting_row = await _load(client, waiting_id)
     _freeze(monkeypatch, _parse(waiting_row["resubmit_expires_at"]))
-    blocked = await _request(client, access, agent_id, {"amount": 4}, run_id=waiting["error"]["data"]["saturnRunId"])
+    blocked = await _request(client, access, agent_id, {"amount": 4}, run_id=waiting["error"]["data"]["gatewayRunId"])
     assert blocked["error"]["code"] == -32006
     assert blocked["error"]["data"]["phase"] == "resubmit"
     assert calls["n"] == 1
@@ -376,14 +376,14 @@ async def test_pending_and_resubmit_expiration(client, monkeypatch):
         json={"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "missing.tool", "arguments": {}}},
         headers={
             "Authorization": f"Bearer {access}",
-            "X-Saturn-Agent-Id": agent_id,
+            "X-Eisoptric-Agent-Id": agent_id,
         },
     )
     assert unknown.json()["error"]["code"] == -32003
     rejected = await _request(client, access, agent_id, {"amount": 11})
     rejected_id = rejected["error"]["data"]["approval_id"]
     assert (await client.post(f"/approvals/{rejected_id}/reject")).status_code == 200
-    rejected_call = await _request(client, access, agent_id, {"amount": 11}, run_id=rejected["error"]["data"]["saturnRunId"])
+    rejected_call = await _request(client, access, agent_id, {"amount": 11}, run_id=rejected["error"]["data"]["gatewayRunId"])
     assert rejected_call["error"]["code"] == -32002
     assert rejected_call["error"]["message"].startswith("approval_rejected")
 
@@ -414,7 +414,7 @@ async def test_concurrent_resubmit_executes_once(client, monkeypatch):
     assert (await client.post(f"/approvals/{approval_id}/approve")).status_code == 200
 
     async def resubmit():
-        return await _request(client, access, agent_id, {"amount": 5}, run_id=pending["error"]["data"]["saturnRunId"])
+        return await _request(client, access, agent_id, {"amount": 5}, run_id=pending["error"]["data"]["gatewayRunId"])
 
     results = await asyncio.gather(resubmit(), resubmit(), return_exceptions=True)
     assert calls["n"] == 1
@@ -443,11 +443,11 @@ async def test_free_plan_manages_webhooks(client):
     made = await client.post(
         "/org/webhooks",
         headers=headers,
-        json={"url": "https://hooks.example.com/saturn", "events": ["approval.granted"]},
+        json={"url": "https://hooks.example.com/gateway", "events": ["approval.granted"]},
     )
     assert made.status_code == 201, made.text
     listed = await client.get("/org/webhooks", headers=headers)
     assert listed.status_code == 200
-    assert [item["url"] for item in listed.json()] == ["https://hooks.example.com/saturn"]
+    assert [item["url"] for item in listed.json()] == ["https://hooks.example.com/gateway"]
     window = await client.get("/org/approval-window", headers=headers)
     assert window.status_code == 200, window.text

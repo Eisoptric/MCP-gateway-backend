@@ -1,6 +1,6 @@
 # Webhooks
 
-Webhooks are included with Pro, Team, and Enterprise. Saturn notifies an organization's HTTPS endpoint after an approval transition. A successful response means the endpoint accepted the notification. It does not mean the agent resumed or that the tool ran.
+Webhooks are included with Pro, Team, and Enterprise. Eisoptric notifies an organization's HTTPS endpoint after an approval transition. A successful response means the endpoint accepted the notification. It does not mean the agent resumed or that the tool ran.
 
 ## Events
 
@@ -10,13 +10,13 @@ Webhooks are included with Pro, Team, and Enterprise. Saturn notifies an organiz
 | `approval.rejected` | A reviewer rejects the request. |
 | `approval.expired` | The pending request or the approved resubmission window has passed. `data.phase` is `pending` or `resubmit`. |
 
-The same transition is stored once per endpoint. Delivering it again does not approve, reject, or execute the tool. An agent that does not receive webhooks resubmits by calling the same tool with the same arguments and `saturnRunId` set to the `run_id` from the error. That field is on every tool schema Saturn exposes. Omitting it starts a new request. Saturn does not read a run id or an action id from request headers.
+The same transition is stored once per endpoint. Delivering it again does not approve, reject, or execute the tool. An agent that does not receive webhooks resubmits by calling the same tool with the same arguments and `gatewayRunId` set to the `run_id` from the error. That field is on every tool schema Eisoptric exposes. Omitting it starts a new request. Eisoptric does not read a run id or an action id from request headers.
 
-Schema: `saturn.webhook.v1`.
+Schema: `eisoptric.webhook.v1`.
 
 ```json
 {
-  "schema": "saturn.webhook.v1",
+  "schema": "eisoptric.webhook.v1",
   "id": "whe_0123abcd",
   "type": "approval.granted",
   "created_at": "2026-10-12T00:00:00+00:00",
@@ -39,9 +39,9 @@ The body is canonical JSON: UTF-8, sorted keys, no extra whitespace. The payload
 
 Each request includes:
 
-- `Saturn-Webhook-Id`: the event id
-- `Saturn-Webhook-Timestamp`: unix seconds
-- `Saturn-Webhook-Signature`: `v1=` plus hex HMAC-SHA256
+- `Eisoptric-Webhook-Id`: the event id
+- `Eisoptric-Webhook-Timestamp`: unix seconds
+- `Eisoptric-Webhook-Signature`: `v1=` plus hex HMAC-SHA256
 
 The signed message is the timestamp, a period, and the raw body. Reject timestamps outside a five-minute window, and ignore an event id you have already handled.
 
@@ -56,13 +56,13 @@ def verify(secret: str, timestamp: str, body: bytes, header: str) -> bool:
 
 The signing secret stays the same for every delivery until an administrator rotates it. `GET /org/webhooks/{id}/secret` downloads the current secret as a text file. The endpoint list does not include it.
 
-Saturn does not follow redirects. Endpoints must be public HTTPS. Loopback, link-local, private, and cloud metadata addresses are rejected when the URL is saved and again when it is delivered.
+Eisoptric does not follow redirects. Endpoints must be public HTTPS. Loopback, link-local, private, and cloud metadata addresses are rejected when the URL is saved and again when it is delivered.
 
 ## Expiration
 
 Pending approval defaults to 24 hours from creation. After approval, a deferred tool call defaults to 24 hours from the approval time. Both can be set from 1 minute through 7 days on `PATCH /org/approval-window`. An approval policy can set a shorter `expires_minutes` or `resubmit_minutes`.
 
-An expired approval cannot be approved or executed. The agent receives Saturn error `-32006` with `data.reason` `APPROVAL_EXPIRED` and `data.phase` `pending` or `resubmit`. This code is Saturn-specific. It is not standard MCP. A call waiting for approval is `-32001`, and the message tells the agent to repeat the tool with `saturnRunId`. Rejection is `-32002`. Retrying a rejected `saturnRunId` returns the same rejection; leaving the field out starts a separate request.
+An expired approval cannot be approved or executed. The agent receives Eisoptric error `-32006` with `data.reason` `APPROVAL_EXPIRED` and `data.phase` `pending` or `resubmit`. This code is Gateway-specific. It is not standard MCP. A call waiting for approval is `-32001`, and the message tells the agent to repeat the tool with `gatewayRunId`. Rejection is `-32002`. Retrying a rejected `gatewayRunId` returns the same rejection; leaving the field out starts a separate request.
 
 ## Delivery
 

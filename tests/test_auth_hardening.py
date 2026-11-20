@@ -56,7 +56,7 @@ async def test_totp_is_required_to_sign_in(client):
     secret = await _enable_real_totp(client)
     saved = _no_auth(client)
     try:
-        login = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": "saturn"})
+        login = await client.post("/auth/login", json={"email": "rick@example.com", "password": "gateway"})
         assert login.status_code == 200, login.text
         body = login.json()
         assert body["mfa_required"] is True
@@ -148,7 +148,7 @@ async def _oauth_login(client, query_name: str = "Scoped Agent"):
     }
     signed = await client.post(
         "/oauth/login",
-        data={**query, "email": "rick@saturn.ai", "password": "saturn"},
+        data={**query, "email": "rick@example.com", "password": "gateway"},
         follow_redirects=False,
     )
     return query, signed
@@ -160,7 +160,7 @@ async def test_oauth_consent_session_is_not_an_api_session(client):
     try:
         query, signed = await _oauth_login(client)
         assert signed.status_code == 303, signed.text
-        cookie = signed.cookies.get("saturn_oauth") or client.cookies.get("saturn_oauth")
+        cookie = signed.cookies.get("eisoptric_oauth") or client.cookies.get("eisoptric_oauth")
         token = cookie.split(".", 1)[0]
         me = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert me.status_code == 401
@@ -173,7 +173,7 @@ async def test_oauth_consent_session_is_not_an_api_session(client):
         assert allowed.status_code == 303
         assert "code" in parse_qs(urlparse(allowed.headers["location"]).query)
         # One consent per sign-in: the consent session is gone.
-        client.cookies.set("saturn_oauth", cookie, path="/oauth")
+        client.cookies.set("eisoptric_oauth", cookie, path="/oauth")
         again = await client.post(
             "/oauth/consent", data={**query, "csrf": csrf, "decision": "allow"}, follow_redirects=False
         )
@@ -302,13 +302,13 @@ def test_forged_host_cannot_make_a_path_look_exempt(monkeypatch):
     from app.core.origin_auth import origin_allowed, request_path
 
     monkeypatch.setenv("ORIGIN_AUTH_SECRET", "s3cret")
-    monkeypatch.setenv("K_SERVICE", "saturn-backend")
+    monkeypatch.setenv("K_SERVICE", "gateway-backend")
     scope = {
         "type": "http",
         "scheme": "https",
         "path": "/admin/users",
         "query_string": b"",
-        "headers": [(b"host", b"api.saturn-core.com/healthz?")],
+        "headers": [(b"host", b"api.eisoptric.com/healthz?")],
         "method": "GET",
     }
     request = Request(scope)
@@ -351,11 +351,11 @@ async def test_seed_admin_demotion_sticks(client):
 
 @pytest.mark.asyncio
 async def test_cookie_writes_need_a_trusted_origin(client):
-    login = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": "saturn"})
+    login = await client.post("/auth/login", json={"email": "rick@example.com", "password": "gateway"})
     token = login.json()["token"]
     saved = _no_auth(client)
     try:
-        client.cookies.set("saturn_session", token)
+        client.cookies.set("eisoptric_session", token)
         blocked = await client.patch("/auth/notices", json={"approval": True, "execute": False, "audit": False})
         assert blocked.status_code == 403
         assert blocked.json()["detail"] == "Cross-site request blocked"
@@ -404,7 +404,7 @@ async def test_email_change_does_not_reveal_taken_addresses(client, monkeypatch)
     response = await client.patch("/auth/me", json={"name": "Rick", "email": "taken@example.com"})
     assert response.status_code == 200, response.text
     assert response.json()["email_change_pending"] is True
-    assert sent == ["rick@saturn.ai"]
+    assert sent == ["rick@example.com"]
 
 
 # L-02: password reset mail goes out after the response, whatever happens.
@@ -418,8 +418,8 @@ async def test_reset_mail_failure_is_not_visible(client, monkeypatch):
         raise HTTPException(502, "Could not send email")
 
     monkeypatch.setattr("app.features.identity.auth.controllers.auth.send_reset_code", broken)
-    known = await client.post("/auth/forgot-password", json={"email": "rick@saturn.ai"})
-    unknown = await client.post("/auth/forgot-password", json={"email": "nobody-else@saturn.ai"})
+    known = await client.post("/auth/forgot-password", json={"email": "rick@example.com"})
+    unknown = await client.post("/auth/forgot-password", json={"email": "nobody-else@example.com"})
     assert known.status_code == unknown.status_code == 204
 
 
@@ -446,7 +446,7 @@ def test_mcp_oauth_urls_get_endpoint_checks(monkeypatch):
 def test_preset_clients_only_serve_their_own_hosts(monkeypatch):
     from app.features.mcp.oauth.services.mcp_oauth import GITHUB_ISSUER, granted_scope, preset_client
 
-    monkeypatch.setenv("SATURN_GITHUB_OAUTH_CLIENT_ID", "gh-client")
+    monkeypatch.setenv("GATEWAY_GITHUB_OAUTH_CLIENT_ID", "gh-client")
     assert preset_client(GITHUB_ISSUER, "https://api.githubcopilot.com/mcp/") is not None
     assert preset_client(GITHUB_ISSUER, "https://mcp.notion.com/mcp") is None
     assert granted_scope(GITHUB_ISSUER, ["repo", "admin:org", "delete_repo"]) == "repo"
@@ -472,7 +472,7 @@ async def test_healthz_reveals_nothing_else(client):
 
 async def test_browsers_get_the_session_only_as_an_httponly_cookie(client):
     # Script on the console page must not be able to read the session token.
-    invited = await client.post("/org/invites", json={"email": "cookie@saturn.ai", "name": "Cookie", "role": "viewer"})
+    invited = await client.post("/org/invites", json={"email": "cookie@example.com", "name": "Cookie", "role": "viewer"})
     assert invited.status_code == 201, invited.text
     accepted = await client.post(
         "/auth/accept-invite",
@@ -481,14 +481,14 @@ async def test_browsers_get_the_session_only_as_an_httponly_cookie(client):
     )
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["token"] is None
-    assert accepted.json()["user"]["email"] == "cookie@saturn.ai"
+    assert accepted.json()["user"]["email"] == "cookie@example.com"
     assert "HttpOnly" in accepted.headers.get("set-cookie", "")
 
     browser = await client.post(
-        "/auth/login", headers={"Origin": "http://localhost:3000"}, json={"email": "cookie@saturn.ai", "password": "password1"}
+        "/auth/login", headers={"Origin": "http://localhost:3000"}, json={"email": "cookie@example.com", "password": "password1"}
     )
     assert browser.status_code == 200, browser.text
     assert browser.json()["token"] is None
-    api_client = await client.post("/auth/login", json={"email": "cookie@saturn.ai", "password": "password1"})
+    api_client = await client.post("/auth/login", json={"email": "cookie@example.com", "password": "password1"})
     assert api_client.status_code == 200, api_client.text
     assert api_client.json()["token"].startswith("sat_")

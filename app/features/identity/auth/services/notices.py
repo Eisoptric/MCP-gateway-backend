@@ -129,7 +129,7 @@ async def _send_security(session: AsyncSession, entry: AuditLog, decision: str) 
     tool = entry.tool or ""
     english_lines = (
         f"Decision · {decision}",
-        "Response · Saturn did not run this action",
+        "Response · Eisoptric did not run this action",
     )
     await _deliver(
         session,
@@ -427,7 +427,7 @@ def _localized_lines(lines: tuple[str, ...], locale: str | None) -> tuple[str, .
     }
     values = {
         "Pending": "等待核准",
-        "Saturn did not run this action": "Saturn 沒有執行這個操作",
+        "Eisoptric did not run this action": "Eisoptric 沒有執行這個操作",
         "denied": "拒絕",
         "deny": "政策拒絕",
         "completed": "已完成",

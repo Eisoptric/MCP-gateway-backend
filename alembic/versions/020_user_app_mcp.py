@@ -1,4 +1,4 @@
-"""Sync MCP that users connect inside Saturn App
+"""Sync MCP that users connect inside Workbench
 
 Revision ID: 020_user_app_mcp
 Revises: 019_org_kind

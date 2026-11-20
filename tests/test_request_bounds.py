@@ -1,8 +1,8 @@
 """Request bodies and per-client memory are bounded."""
 
 from app.core.body_limit import DEFAULT_MAX_BYTES, SMALL_MAX_BYTES, limit_for
-from app.features.mcp.saturn.services import mcp_sessions as sessions_module
-from app.features.mcp.saturn.services.mcp_sessions import LIST_CHANGED, MAX_QUEUED_NOTICES, McpSessionHub
+from app.features.mcp.gateway.services import mcp_sessions as sessions_module
+from app.features.mcp.gateway.services.mcp_sessions import LIST_CHANGED, MAX_QUEUED_NOTICES, McpSessionHub
 
 
 def test_unauthenticated_routes_get_the_small_limit():

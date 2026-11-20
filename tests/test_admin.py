@@ -12,7 +12,7 @@ async def test_seed_user_is_platform_admin(client):
 async def test_non_admin_cannot_access_admin(client):
     invited = await client.post(
         "/org/invites",
-        json={"email": "viewer@saturn.ai", "name": "Viewer", "role": "viewer"},
+        json={"email": "viewer@example.com", "name": "Viewer", "role": "viewer"},
     )
     assert invited.status_code == 201, invited.text
     accepted = await client.post(
@@ -141,7 +141,7 @@ async def test_platform_overview_and_org_lifecycle(client):
     assert "org_updated" in events
     settings = await client.get("/admin/settings")
     assert settings.status_code == 200
-    assert settings.json()["platform"]["name"] == "Saturn"
+    assert settings.json()["platform"]["name"] == "Eisoptric"
 
 
 def capture_reset_codes(monkeypatch) -> list[tuple[str, str]]:
@@ -219,7 +219,7 @@ async def test_onboard_rejects_duplicate_email(client):
         "/admin/orgs",
         json={
             "name": "Dup",
-            "admin_email": "rick@saturn.ai",
+            "admin_email": "rick@example.com",
             "admin_name": "Rick",
             "admin_password": "password1",
         },

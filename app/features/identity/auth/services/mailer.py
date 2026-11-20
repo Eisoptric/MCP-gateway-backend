@@ -10,13 +10,13 @@ from app.core.config import get_settings
 _COPY = {
     "signup": {
         "zh": {
-            "subject": "{code} 是你的 Saturn 帳號確認碼",
+            "subject": "{code} 是你的 Eisoptric 帳號確認碼",
             "title": "確認你的帳號",
             "body": "輸入下面的驗證碼，完成建立帳號。這組碼 10 分鐘內有效。",
             "ignore": "如果你沒有提出這個要求，可以忽略這封信。",
         },
         "en": {
-            "subject": "{code} is your Saturn confirmation code",
+            "subject": "{code} is your Eisoptric confirmation code",
             "title": "Confirm your account",
             "body": "Enter this code to finish creating your account. It expires in 10 minutes.",
             "ignore": "If you didn't request this, you can ignore this email.",
@@ -24,27 +24,27 @@ _COPY = {
     },
     "login": {
         "zh": {
-            "subject": "{code} 是你的 Saturn 登入驗證碼",
-            "title": "登入 Saturn",
+            "subject": "{code} 是你的 Eisoptric 登入驗證碼",
+            "title": "登入 Eisoptric",
             "body": "輸入下面的驗證碼以完成登入。這組碼 10 分鐘內有效。",
             "ignore": "如果你沒有提出這個要求，可以忽略這封信。",
         },
         "en": {
-            "subject": "{code} is your Saturn sign-in code",
-            "title": "Sign in to Saturn",
+            "subject": "{code} is your Eisoptric sign-in code",
+            "title": "Sign in to Eisoptric",
             "body": "Enter this code to finish signing in. It expires in 10 minutes.",
             "ignore": "If you didn't request this, you can ignore this email.",
         },
     },
     "email_current": {
         "zh": {
-            "subject": "{code} 是你的 Saturn 電子郵件變更碼",
+            "subject": "{code} 是你的 Eisoptric 電子郵件變更碼",
             "title": "確認變更電子郵件",
             "body": "輸入下面的驗證碼，確認你要變更這個帳號的電子郵件。這組碼 10 分鐘內有效。",
             "ignore": "如果你沒有提出這個要求，可以忽略這封信。",
         },
         "en": {
-            "subject": "{code} is your Saturn email change code",
+            "subject": "{code} is your Eisoptric email change code",
             "title": "Confirm the email change",
             "body": "Enter this code to confirm you want to change the email on this account. It expires in 10 minutes.",
             "ignore": "If you didn't request this, you can ignore this email.",
@@ -52,27 +52,27 @@ _COPY = {
     },
     "email_next": {
         "zh": {
-            "subject": "{code} 是你的 Saturn 新電子郵件確認碼",
+            "subject": "{code} 是你的 Eisoptric 新電子郵件確認碼",
             "title": "確認新的電子郵件",
-            "body": "輸入下面的驗證碼，把 Saturn 帳號改到這個信箱。這組碼 10 分鐘內有效。",
+            "body": "輸入下面的驗證碼，把 Eisoptric 帳號改到這個信箱。這組碼 10 分鐘內有效。",
             "ignore": "如果你沒有提出這個要求，可以忽略這封信。",
         },
         "en": {
-            "subject": "{code} is your Saturn new email code",
+            "subject": "{code} is your Eisoptric new email code",
             "title": "Confirm this email",
-            "body": "Enter this code to use this address for your Saturn account. It expires in 10 minutes.",
+            "body": "Enter this code to use this address for your Eisoptric account. It expires in 10 minutes.",
             "ignore": "If you didn't request this, you can ignore this email.",
         },
     },
     "reauth": {
         "zh": {
-            "subject": "{code} 是你的 Saturn 安全確認碼",
+            "subject": "{code} 是你的 Eisoptric 安全確認碼",
             "title": "確認是你本人",
             "body": "輸入下面的驗證碼，繼續變更帳號安全設定。這組碼 10 分鐘內有效。",
             "ignore": "如果你沒有提出這個要求，可以忽略這封信。",
         },
         "en": {
-            "subject": "{code} is your Saturn security code",
+            "subject": "{code} is your Eisoptric security code",
             "title": "Confirm it's you",
             "body": "Enter this code to continue a security change on your account. It expires in 10 minutes.",
             "ignore": "If you didn't request this, you can ignore this email.",
@@ -80,13 +80,13 @@ _COPY = {
     },
     "reset": {
         "zh": {
-            "subject": "{code} 是你的 Saturn 密碼重設碼",
+            "subject": "{code} 是你的 Eisoptric 密碼重設碼",
             "title": "重設密碼",
             "body": "輸入下面的驗證碼以設定新密碼。這組碼 10 分鐘內有效。",
             "ignore": "如果你沒有提出這個要求，可以忽略這封信。",
         },
         "en": {
-            "subject": "{code} is your Saturn password reset code",
+            "subject": "{code} is your Eisoptric password reset code",
             "title": "Reset your password",
             "body": "Enter this code to choose a new password. It expires in 10 minutes.",
             "ignore": "If you didn't request this, you can ignore this email.",
@@ -135,7 +135,7 @@ def console_origin() -> str:
         cleaned = origin.strip().rstrip("/")
         if cleaned.startswith("https://"):
             return cleaned
-    return "https://dashboard.saturn-core.com"
+    return "https://dashboard.eisoptric.com"
 
 
 async def send_notice(
@@ -193,12 +193,12 @@ def _card(lang: str, title: str, inner: str) -> str:
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px;background:#ffffff;border:1px solid #e6e6e1;border-radius:12px;">
           <tr>
             <td style="padding:32px 32px 28px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111110;">
-              <div style="font-size:15px;font-weight:600;letter-spacing:-0.02em;">Saturn</div>
+              <div style="font-size:15px;font-weight:600;letter-spacing:-0.02em;">Eisoptric</div>
               {inner}
             </td>
           </tr>
         </table>
-        <p style="margin:16px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;line-height:1.5;color:#8a8a84;">Saturn</p>
+        <p style="margin:16px 0 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:12px;line-height:1.5;color:#8a8a84;">Eisoptric</p>
       </td>
     </tr>
   </table>
@@ -209,7 +209,7 @@ def _card(lang: str, title: str, inner: str) -> str:
 def _code_message(code: str, kind: str, locale: str) -> tuple[str, str, str]:
     copy = _COPY[kind][_copy_language(locale)]
     subject = copy["subject"].format(code=code)
-    text = f"{copy['title']}\n\n{code}\n\n{copy['body']}\n\n{copy['ignore']}\n\nSaturn\n"
+    text = f"{copy['title']}\n\n{code}\n\n{copy['body']}\n\n{copy['ignore']}\n\nGateway\n"
     code_block = (
         f'<div style="margin:24px 0 0;padding:18px 12px;background:#f7f7f5;border-radius:10px;'
         f'font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:32px;line-height:1;'
@@ -225,14 +225,14 @@ def _code_message(code: str, kind: str, locale: str) -> tuple[str, str, str]:
 _NOTICE = {
     "approval": {
         "zh": {
-            "subject": "Saturn：需要核准 — {tool}",
+            "subject": "Eisoptric：需要核准 — {tool}",
             "title": "需要核准",
             "body": "{who}要執行 {tool}。這次操作要先經過核准，這封信不會直接放行。",
             "empty": "有一個操作正在等待核准。這封信不會直接放行。",
             "link": "前往核准",
         },
         "en": {
-            "subject": "Saturn: Approval required — {tool}",
+            "subject": "Eisoptric: Approval required — {tool}",
             "title": "Approval required",
             "body": "{who} wants to run {tool}. This action waits for approval. This email does not approve it.",
             "empty": "An action is waiting for approval. This email does not approve it.",
@@ -241,14 +241,14 @@ _NOTICE = {
     },
     "completed": {
         "zh": {
-            "subject": "Saturn：{tool} 已完成",
+            "subject": "Eisoptric：{tool} 已完成",
             "title": "任務完成",
             "body": "{who}完成了「{tool}」。",
             "empty": "一個任務已經完成。",
             "link": "查看執行細節",
         },
         "en": {
-            "subject": "Saturn: {tool} completed",
+            "subject": "Eisoptric: {tool} completed",
             "title": "Task completed",
             "body": "{who} finished “{tool}”.",
             "empty": "A task has finished.",
@@ -257,14 +257,14 @@ _NOTICE = {
     },
     "failed": {
         "zh": {
-            "subject": "Saturn：任務失敗 — {tool}",
+            "subject": "Eisoptric：任務失敗 — {tool}",
             "title": "任務失敗",
             "body": "{who}的「{tool}」沒有完成。",
             "empty": "一個任務沒有完成。",
             "link": "查看執行細節",
         },
         "en": {
-            "subject": "Saturn: Task failed — {tool}",
+            "subject": "Eisoptric: Task failed — {tool}",
             "title": "Task failed",
             "body": "{who} did not finish “{tool}”.",
             "empty": "A task did not finish.",
@@ -273,17 +273,17 @@ _NOTICE = {
     },
     "security": {
         "zh": {
-            "subject": "Saturn：安全警示 — {tool}",
+            "subject": "Eisoptric：安全警示 — {tool}",
             "title": "安全警示",
-            "body": "{who}的 {tool} 被拒絕。Saturn 沒有執行這個操作。",
-            "empty": "有一個操作被拒絕。Saturn 沒有執行它。",
+            "body": "{who}的 {tool} 被拒絕。Eisoptric 沒有執行這個操作。",
+            "empty": "有一個操作被拒絕。Eisoptric 沒有執行它。",
             "link": "查看稽核紀錄",
         },
         "en": {
-            "subject": "Saturn: Security alert — {tool}",
+            "subject": "Eisoptric: Security alert — {tool}",
             "title": "Security alert",
-            "body": "{who} was denied {tool}. Saturn did not run it.",
-            "empty": "An action was denied. Saturn did not run it.",
+            "body": "{who} was denied {tool}. Eisoptric did not run it.",
+            "empty": "An action was denied. Eisoptric did not run it.",
             "link": "View the audit log",
         },
     },
@@ -296,7 +296,7 @@ def _notice_copy(kind: str, language: str, tool: str, agent: str) -> tuple[str, 
     if agent and tool:
         body = copy["body"].format(who=agent, tool=name)
     else:
-        body = copy["empty"] if not tool else copy["body"].format(who=agent or ("Saturn" if language == "zh" else "Saturn"), tool=name)
+        body = copy["empty"] if not tool else copy["body"].format(who=agent or ("Eisoptric" if language == "zh" else "Eisoptric"), tool=name)
     return copy["subject"].format(tool=name), copy["title"], body, copy["link"]
 
 
@@ -314,7 +314,7 @@ def _notice_message(
     if detail:
         body = f"{body} {detail}"
     meta = "\n".join(kept)
-    text = f"{title}\n\n{body}\n\n{meta}\n\n{link_label}: {link}\n\nSaturn\n" if meta else f"{title}\n\n{body}\n\n{link_label}: {link}\n\nSaturn\n"
+    text = f"{title}\n\n{body}\n\n{meta}\n\n{link_label}: {link}\n\nGateway\n" if meta else f"{title}\n\n{body}\n\n{link_label}: {link}\n\nGateway\n"
     facts = ""
     if kept:
         rows = "".join(
@@ -359,17 +359,17 @@ async def _send(email: str, code: str, kind: str, locale: str) -> None:
 
 _FACTOR = {
     "zh": {
-        "subject": "Saturn：你的帳號新增了登入驗證方式",
+        "subject": "Eisoptric：你的帳號新增了登入驗證方式",
         "title": "已新增登入驗證方式",
-        "totp": "你的 Saturn 帳號剛剛設定了驗證器 App。",
-        "passkey": "你的 Saturn 帳號剛剛新增了一把通行密鑰（passkey）。",
+        "totp": "你的 Eisoptric 帳號剛剛設定了驗證器 App。",
+        "passkey": "你的 Eisoptric 帳號剛剛新增了一把通行密鑰（passkey）。",
         "body": "如果這不是你本人操作，請立刻重設密碼並聯絡你的組織管理員。",
     },
     "en": {
-        "subject": "Saturn: a sign-in method was added to your account",
+        "subject": "Eisoptric: a sign-in method was added to your account",
         "title": "Sign-in method added",
-        "totp": "An authenticator app was just set up on your Saturn account.",
-        "passkey": "A passkey was just added to your Saturn account.",
+        "totp": "An authenticator app was just set up on your Eisoptric account.",
+        "passkey": "A passkey was just added to your Eisoptric account.",
         "body": "If this wasn't you, reset your password now and contact your organization's admin.",
     },
 }
@@ -383,7 +383,7 @@ async def send_factor_added(email: str, factor: str, locale: str | None = None) 
     language = _copy_language(mail_locale(locale))
     copy = _FACTOR[language]
     what = copy["passkey" if factor == "passkey" else "totp"]
-    text = f"{copy['title']}\n\n{what}\n\n{copy['body']}\n\nSaturn\n"
+    text = f"{copy['title']}\n\n{what}\n\n{copy['body']}\n\nGateway\n"
     inner = f"""<h1 style="margin:28px 0 0;font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-0.02em;">{escape(copy["title"])}</h1>
               <p style="margin:22px 0 0;font-size:14px;line-height:1.6;">{escape(what)}</p>
               <p style="margin:16px 0 0;font-size:14px;line-height:1.6;">{escape(copy["body"])}</p>"""
@@ -407,16 +407,16 @@ async def send_factor_added(email: str, factor: str, locale: str | None = None) 
 
 _INVITE = {
     "zh": {
-        "subject": "你受邀加入 Saturn 上的 {org}",
+        "subject": "你受邀加入 Eisoptric 上的 {org}",
         "title": "加入 {org}",
-        "body": "{who}邀請你加入 Saturn 上的「{org}」。點下面的按鈕設定密碼並啟用帳號。這個連結 {days} 天內有效，只能使用一次。",
+        "body": "{who}邀請你加入 Eisoptric 上的「{org}」。點下面的按鈕設定密碼並啟用帳號。這個連結 {days} 天內有效，只能使用一次。",
         "link": "接受邀請",
         "ignore": "如果你不認識這個組織，可以忽略這封信。",
     },
     "en": {
-        "subject": "You're invited to join {org} on Saturn",
+        "subject": "You're invited to join {org} on Eisoptric",
         "title": "Join {org}",
-        "body": "{who} invited you to join “{org}” on Saturn. Use the button below to set a password and activate your account. The link works once and expires in {days} days.",
+        "body": "{who} invited you to join “{org}” on Eisoptric. Use the button below to set a password and activate your account. The link works once and expires in {days} days.",
         "link": "Accept invite",
         "ignore": "If you don't recognise this organization, you can ignore this email.",
     },
@@ -442,13 +442,13 @@ def invite_link(token: str, email: str = "") -> str:
 def _invite_message(token: str, org: str, inviter: str, days: int, locale: str, email: str = "") -> tuple[str, str, str]:
     lang = _copy_language(locale)
     copy = _INVITE[lang]
-    org_name = org or "Saturn"
-    who = inviter or ("Saturn 管理員" if lang == "zh" else "A Saturn admin")
+    org_name = org or "Eisoptric"
+    who = inviter or ("Eisoptric 管理員" if lang == "zh" else "An Eisoptric admin")
     subject = copy["subject"].format(org=org_name)
     title = copy["title"].format(org=org_name)
     body = copy["body"].format(who=who, org=org_name, days=days)
     link = invite_link(token, email)
-    text = f"{title}\n\n{body}\n\n{copy['link']}: {link}\n\n{copy['ignore']}\n\nSaturn\n"
+    text = f"{title}\n\n{body}\n\n{copy['link']}: {link}\n\n{copy['ignore']}\n\nGateway\n"
     button = (
         f'<p style="margin:24px 0 0;"><a href="{escape(link)}" style="display:inline-block;padding:10px 16px;'
         f'background:#111110;color:#ffffff;border-radius:8px;font-size:13px;text-decoration:none;">{escape(copy["link"])}</a></p>'

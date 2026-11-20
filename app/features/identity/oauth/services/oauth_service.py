@@ -22,7 +22,7 @@ REFRESH_TTL = timedelta(days=30)
 # REFRESH_TTL more, but never past this from the authorization the family started with.
 REFRESH_FAMILY_TTL = timedelta(days=90)
 CODE_TTL = timedelta(minutes=5)
-SCOPE = "saturn.mcp"
+SCOPE = "eisoptric.mcp"
 
 
 def _aware(value):

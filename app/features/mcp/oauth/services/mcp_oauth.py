@@ -43,7 +43,7 @@ def _refresh_lock(server_id: str) -> asyncio.Lock:
         del _refresh_locks[key]
     return _refresh_locks.setdefault(server_id, asyncio.Lock())
 MAX_OAUTH_RESPONSE_BYTES = 256 * 1024
-BROWSER_COOKIE_PREFIX = "saturn_mcp_"
+BROWSER_COOKIE_PREFIX = "gateway_mcp_"
 CALLBACK_PATH = "/mcp-servers/oauth/callback"
 
 
@@ -62,7 +62,7 @@ def browser_cookie_name(pending_id: str) -> str:
 def browser_cookie_domain(console_origin: str, api_origin: str) -> str | None:
     """The cookie domain both the console and the API callback receive, or None for host-only.
 
-    The console starts the sign-in on its own host (through /saturn-api), and the provider redirects
+    The console starts the sign-in on its own host (through /gateway-api), and the provider redirects
     to the API host. A cookie for their common parent domain reaches the callback; the same host
     needs no Domain at all.
     """
@@ -113,7 +113,7 @@ def url_allowed(url: str) -> bool:
     """Every URL an MCP server's metadata points us at gets the same checks as the endpoint itself.
 
     HTTPS on the default port, no credentials, no literal or metadata hosts, and every resolved
-    address public. The authorization code and Saturn's client secret are posted to these URLs.
+    address public. The authorization code and Eisoptric's client secret are posted to these URLs.
     """
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower().rstrip(".")
@@ -296,14 +296,14 @@ def callback_origin(request_origin: str) -> str:
 
 GOOGLE_ISSUER = "https://accounts.google.com"
 GITHUB_ISSUER = "https://github.com/login/oauth"
-# Saturn's own OAuth apps. Each one is used only for the MCP hosts it was registered for, so a server
+# Eisoptric's own OAuth apps. Each one is used only for the MCP hosts it was registered for, so a server
 # cannot borrow it just by naming that issuer in its metadata.
 _PRESET_CLIENTS = (
-    (GITHUB_ISSUER, "SATURN_GITHUB_OAUTH_CLIENT_ID", "SATURN_GITHUB_OAUTH_CLIENT_SECRET", ("api.githubcopilot.com",)),
-    (GOOGLE_ISSUER, "SATURN_GOOGLE_OAUTH_CLIENT_ID", "SATURN_GOOGLE_OAUTH_CLIENT_SECRET", (".googleapis.com",)),
+    (GITHUB_ISSUER, "GATEWAY_GITHUB_OAUTH_CLIENT_ID", "GATEWAY_GITHUB_OAUTH_CLIENT_SECRET", ("api.githubcopilot.com",)),
+    (GOOGLE_ISSUER, "GATEWAY_GOOGLE_OAUTH_CLIENT_ID", "GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET", (".googleapis.com",)),
 )
 _G = "https://www.googleapis.com/auth/"
-# The scopes Saturn's Google app asks for, per MCP host: the least each marketplace card needs.
+# The scopes Eisoptric's Google app asks for, per MCP host: the least each marketplace card needs.
 # A Google server advertises far more (Drive offers full `drive`, Gmail offers `mail.google.com`),
 # and one host's scopes are never requested for another. A Google host with no entry here,
 # including one an organization approved itself, gets no scope and so no sign-in.
@@ -326,7 +326,7 @@ _GOOGLE_SCOPES: dict[str, frozenset[str]] = {
     "redis.googleapis.com": frozenset({_G + "redis.read-write"}),
     "sqladmin.googleapis.com": frozenset({_G + "cloudsql"}),
 }
-# Never requested through Saturn's GitHub app, whatever the server advertises.
+# Never requested through Eisoptric's GitHub app, whatever the server advertises.
 _GITHUB_DENIED_SCOPES = frozenset({"delete_repo", "delete:packages", "site_admin", "admin:enterprise"})
 
 
@@ -350,7 +350,7 @@ def preset_client(issuer: str, endpoint: str = "") -> dict[str, str] | None:
 
 
 def granted_scope(issuer: str, scopes: list[Any], endpoint: str = "") -> str:
-    """The scopes to ask for: what the server advertises, narrowed for Saturn's own OAuth apps.
+    """The scopes to ask for: what the server advertises, narrowed for Eisoptric's own OAuth apps.
 
     `endpoint` is the MCP server's URL. For Google, it picks which scopes that host may have.
     """
@@ -474,7 +474,7 @@ class McpOAuth:
         if preset_client(found.issuer, found.endpoint or endpoint) is not None:
             return True
         if found.issuer == GOOGLE_ISSUER:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "This MCP server does not let Saturn start sign-in")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "This MCP server does not let Eisoptric start sign-in")
         return False
 
     async def _register(self, found: Discovery, redirect_uri: str) -> dict[str, str]:
@@ -482,9 +482,9 @@ class McpOAuth:
         if preset is not None:
             return preset
         if not found.registration_endpoint:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "This MCP server does not let Saturn start sign-in")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "This MCP server does not let Eisoptric start sign-in")
         body: dict[str, Any] = {
-            "client_name": "Saturn",
+            "client_name": "Eisoptric",
             "redirect_uris": [redirect_uri],
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
@@ -501,7 +501,7 @@ class McpOAuth:
         registered = _json(response)
         client_id = str((registered or {}).get("client_id") or "").strip()
         if not client_id:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "MCP provider did not accept Saturn as a client")
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "MCP provider did not accept Eisoptric as a client")
         secret = str((registered or {}).get("client_secret") or "")
         return {"client_id": client_id, "client_secret": secret}
 
@@ -587,7 +587,7 @@ class McpOAuth:
                 session,
                 event=AuditEvent.MCP_OAUTH_REFUSED,
                 actor_type=ActorType.SYSTEM,
-                actor_id="saturn",
+                actor_id="gateway",
                 organization_id=pending.organization_id,
                 result="browser_mismatch",
                 payload={"user_id": pending.user_id, "endpoint_host": urlparse(pending.endpoint).hostname or ""},
@@ -777,7 +777,7 @@ class McpOAuth:
             session,
             event=AuditEvent.CREDENTIAL_ACCESSED,
             actor_type=ActorType.SYSTEM,
-            actor_id="saturn",
+            actor_id="gateway",
             organization_id=server.organization_id,
             result=server.name,
             payload={"credential_id": server.credential_id, "purpose": purpose},
@@ -785,12 +785,12 @@ class McpOAuth:
 
 
 _EXPIRED = "This sign-in expired. Close the window and connect again."
-_ANOTHER_BROWSER = "This sign-in was started in another browser. Start it again from the Saturn console."
+_ANOTHER_BROWSER = "This sign-in was started in another browser. Start it again from the Eisoptric console."
 _ERROR_CODE = re.compile(r"^[a-z_]{1,48}$")
 
 
 def _detail(exc: HTTPException) -> str:
-    # Details raised on this path are Saturn's own sentences, never upstream bodies or tokens.
+    # Details raised on this path are Eisoptric's own sentences, never upstream bodies or tokens.
     return exc.detail if isinstance(exc.detail, str) else "Could not finish sign-in."
 
 
@@ -825,7 +825,7 @@ def _page(ok: bool, nonce: str, error: str, *, notify: bool = True) -> HTMLRespo
     from app.core.http_security import current_csp_nonce
 
     # Escape "<" so text from an upstream error can never close the script element.
-    payload = json.dumps({"type": "saturn-mcp-oauth", "ok": ok, "nonce": nonce, "error": error}).replace("<", "\\u003c")
+    payload = json.dumps({"type": "gateway-mcp-oauth", "ok": ok, "nonce": nonce, "error": error}).replace("<", "\\u003c")
     # Only the console that opened this window may read the result. postMessage takes one target
     # origin, so it is sent once per allowed console origin and the others are dropped by the browser.
     from app.core.config import get_settings

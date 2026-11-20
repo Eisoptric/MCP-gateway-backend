@@ -6,7 +6,7 @@ import secrets
 from app.core.config import get_settings
 
 V2 = "v2." + ("ab" * 32)
-V1 = "v1." + hashlib.sha256(b"saturn-login-v1\nwrong horse").hexdigest()
+V1 = "v1." + hashlib.sha256(b"eisoptric-login-v1\nwrong horse").hexdigest()
 
 
 async def _make_legacy(email: str, raw: str) -> None:
@@ -61,11 +61,11 @@ def _count_hashes(monkeypatch) -> dict[str, int]:
 
 
 async def test_probe_gives_every_address_the_same_answer_and_work(client, legacy_window, monkeypatch):
-    await _make_legacy("legacy-probe@saturn.ai", "correct horse")
+    await _make_legacy("legacy-probe@example.com", "correct horse")
     client.headers.pop("Authorization", None)
     counts = _count_hashes(monkeypatch)
     seen = []
-    for email in ("nobody-at-all@saturn.ai", "rick@saturn.ai", "legacy-probe@saturn.ai"):
+    for email in ("nobody-at-all@example.com", "rick@example.com", "legacy-probe@example.com"):
         for extra in ({}, {"legacy_v1": V1}, {"legacy_v1": V1, "legacy_password": "wrong horse"}):
             counts.update(argon2=0, pbkdf2=0)
             response = await client.post("/auth/login/migration", json={"email": email, "password": V2, **extra})
@@ -79,12 +79,12 @@ async def test_probe_gives_every_address_the_same_answer_and_work(client, legacy
 
 
 async def test_failed_sign_in_looks_the_same_for_unknown_current_and_legacy(client, monkeypatch):
-    await _make_legacy("legacy-login@saturn.ai", "correct horse")
+    await _make_legacy("legacy-login@example.com", "correct horse")
     client.headers.pop("Authorization", None)
     counts = _count_hashes(monkeypatch)
     for extra in ({}, {"legacy_v1": V1}, {"legacy_v1": V1, "legacy_password": "wrong horse"}):
         seen = set()
-        for n, email in enumerate(("nobody-else@saturn.ai", "rick@saturn.ai", "legacy-login@saturn.ai")):
+        for n, email in enumerate(("nobody-else@example.com", "rick@example.com", "legacy-login@example.com")):
             counts.update(argon2=0, pbkdf2=0)
             response = await client.post(
                 "/auth/login",
@@ -97,21 +97,21 @@ async def test_failed_sign_in_looks_the_same_for_unknown_current_and_legacy(clie
 
 
 async def test_legacy_accounts_still_sign_in_with_the_hinted_proofs(client, legacy_window):
-    await _make_legacy("legacy-ok@saturn.ai", "correct horse")
+    await _make_legacy("legacy-ok@example.com", "correct horse")
     client.headers.pop("Authorization", None)
-    probe = await client.post("/auth/login/migration", json={"email": "legacy-ok@saturn.ai", "password": V2})
+    probe = await client.post("/auth/login/migration", json={"email": "legacy-ok@example.com", "password": V2})
     assert probe.json() == {"migration": "v1"}
     # What the console and the OAuth page send after the hint: both legacy proofs at once.
-    v1 = "v1." + hashlib.sha256(b"saturn-login-v1\ncorrect horse").hexdigest()
+    v1 = "v1." + hashlib.sha256(b"eisoptric-login-v1\ncorrect horse").hexdigest()
     signed = await client.post(
         "/auth/login",
-        json={"email": "legacy-ok@saturn.ai", "password": V2, "legacy_v1": v1, "legacy_password": "correct horse"},
+        json={"email": "legacy-ok@example.com", "password": V2, "legacy_v1": v1, "legacy_password": "correct horse"},
     )
     assert signed.status_code == 200, signed.text
     # Rewritten onto the verifier, so the next sign-in needs no legacy proof.
-    again = await client.post("/auth/login", json={"email": "legacy-ok@saturn.ai", "password": V2})
+    again = await client.post("/auth/login", json={"email": "legacy-ok@example.com", "password": V2})
     assert again.status_code == 200, again.text
-    assert (await client.post("/auth/login/migration", json={"email": "legacy-ok@saturn.ai", "password": V2})).json() == {
+    assert (await client.post("/auth/login/migration", json={"email": "legacy-ok@example.com", "password": V2})).json() == {
         "migration": None
     }
 
@@ -121,7 +121,7 @@ async def test_no_hint_after_the_legacy_deadline(client, monkeypatch):
 
     monkeypatch.setattr(auth_module, "legacy_password_allowed", lambda: False)
     client.headers.pop("Authorization", None)
-    for email in ("nobody-late@saturn.ai", "rick@saturn.ai"):
+    for email in ("nobody-late@example.com", "rick@example.com"):
         probe = await client.post("/auth/login/migration", json={"email": email, "password": V2})
         assert probe.json() == {"migration": None}
         refused = await client.post("/auth/login", json={"email": email, "password": V2})

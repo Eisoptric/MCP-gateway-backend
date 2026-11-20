@@ -51,12 +51,12 @@ async def test_agent_registers_with_oauth_and_binds_its_profile(client):
 
     signed = await client.post(
         "/oauth/login",
-        data={**query, "email": "rick@saturn.ai", "password": "saturn"},
+        data={**query, "email": "rick@example.com", "password": "gateway"},
         follow_redirects=False,
     )
     assert signed.status_code == 303
     consent = await client.get(signed.headers["location"])
-    assert "org_saturn:user_operator" in consent.text
+    assert "org_default:user_operator" in consent.text
     assert "授權代理人" in consent.text
     assert "僅建立連線" in consent.text
     assert "Set：" not in consent.text
@@ -99,13 +99,13 @@ async def test_agent_registers_with_oauth_and_binds_its_profile(client):
         json={"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}},
     )
     assert opened.status_code == 200, opened.text
-    assert opened.json()["result"]["serverInfo"]["name"] == "Saturn MCP"
+    assert opened.json()["result"]["serverInfo"]["name"] == "MCP Gateway"
 
     client.headers["Authorization"] = session
     listed = (await client.get("/agents")).json()
     cursor = next(item for item in listed if item["name"] == "Cursor")
-    assert cursor["origin"] == "saturn_mcp"
-    assert cursor["profile_id"] == "org_saturn:user_operator"
+    assert cursor["origin"] == "gateway_mcp"
+    assert cursor["profile_id"] == "org_default:user_operator"
 
     client.headers.pop("Authorization")
     reused = await client.post(

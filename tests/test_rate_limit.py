@@ -34,7 +34,7 @@ async def test_shared_limit_uses_one_redis_counter(monkeypatch):
     monkeypatch.setattr(rate_limit, "_redis_client", lambda: fake)
     assert await rate_limit.allow("shared", limit=1, window=60)
     assert await rate_limit.allow("shared", limit=1, window=60) is False
-    assert fake.values["saturn:rate:shared"] == 2
+    assert fake.values["gateway:rate:shared"] == 2
 
 
 def test_client_ip_prefers_cf_connecting_ip(monkeypatch):
@@ -77,13 +77,13 @@ async def test_redis_outage_rejects_login_and_registration_without_memory_fallba
 
     login_resp = await client.post(
         "/auth/login",
-        json={"email": "rick@saturn.ai", "password": "saturn"},
+        json={"email": "rick@example.com", "password": "gateway"},
     )
     assert login_resp.status_code == 429
 
     migration_resp = await client.post(
         "/auth/login/migration",
-        json={"email": "rick@saturn.ai", "password": "saturn"},
+        json={"email": "rick@example.com", "password": "gateway"},
     )
     assert migration_resp.status_code == 429
 
@@ -220,17 +220,17 @@ def test_client_ip_trusts_the_console_address_only_with_the_console_secret(monke
             self.headers = {"cf-connecting-ip": "34.1.1.1", **headers}
             self.client = None
 
-    assert client_ip(Request({"x-saturn-console-auth": "console-secret", "x-saturn-client-ip": "198.51.100.9"})) == "198.51.100.9"
+    assert client_ip(Request({"x-eisoptric-console-auth": "console-secret", "x-eisoptric-client-ip": "198.51.100.9"})) == "198.51.100.9"
     # Wrong or missing secret: the header is a client's own claim and is ignored.
-    assert client_ip(Request({"x-saturn-console-auth": "guess", "x-saturn-client-ip": "198.51.100.9"})) == "34.1.1.1"
-    assert client_ip(Request({"x-saturn-client-ip": "198.51.100.9"})) == "34.1.1.1"
+    assert client_ip(Request({"x-eisoptric-console-auth": "guess", "x-eisoptric-client-ip": "198.51.100.9"})) == "34.1.1.1"
+    assert client_ip(Request({"x-eisoptric-client-ip": "198.51.100.9"})) == "34.1.1.1"
     # Not an address: fall back rather than key a bucket on arbitrary text.
-    assert client_ip(Request({"x-saturn-console-auth": "console-secret", "x-saturn-client-ip": "x"})) == "34.1.1.1"
+    assert client_ip(Request({"x-eisoptric-console-auth": "console-secret", "x-eisoptric-client-ip": "x"})) == "34.1.1.1"
     monkeypatch.setenv("CONSOLE_PROXY_SECRET_PREVIOUS", "old-secret")
-    assert client_ip(Request({"x-saturn-console-auth": "old-secret", "x-saturn-client-ip": "198.51.100.10"})) == "198.51.100.10"
+    assert client_ip(Request({"x-eisoptric-console-auth": "old-secret", "x-eisoptric-client-ip": "198.51.100.10"})) == "198.51.100.10"
     monkeypatch.delenv("CONSOLE_PROXY_SECRET")
     monkeypatch.delenv("CONSOLE_PROXY_SECRET_PREVIOUS")
-    assert client_ip(Request({"x-saturn-console-auth": "", "x-saturn-client-ip": "198.51.100.9"})) == "34.1.1.1"
+    assert client_ip(Request({"x-eisoptric-console-auth": "", "x-eisoptric-client-ip": "198.51.100.9"})) == "34.1.1.1"
 
 
 async def test_console_users_do_not_share_one_login_bucket(monkeypatch):
@@ -243,8 +243,8 @@ async def test_console_users_do_not_share_one_login_bucket(monkeypatch):
         def __init__(self, ip: str) -> None:
             self.headers = {
                 "cf-connecting-ip": "34.1.1.1",
-                "x-saturn-console-auth": "console-secret",
-                "x-saturn-client-ip": ip,
+                "x-eisoptric-console-auth": "console-secret",
+                "x-eisoptric-client-ip": ip,
             }
             self.client = None
 

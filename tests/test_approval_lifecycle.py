@@ -91,7 +91,7 @@ def test_nothing_leaves_a_closed_or_finished_approval():
             # Settling: only a claimed call can end, and its status does not change.
             assert transition.execution_from is ExecutionState.CLAIMED and transition.status_to is None
         elif transition is RELEASE:
-            # The one way back: a claimed call that never left Saturn returns to approved.
+            # The one way back: a claimed call that never left Eisoptric returns to approved.
             assert transition.execution_from is ExecutionState.CLAIMED and transition.execution_to is ExecutionState.NONE
             assert transition.status_from is ApprovalStatus.APPROVED and transition.status_to is None
         else:
@@ -133,7 +133,7 @@ async def _stored(client, status="pending", execution="none"):
 
     generator = app.dependency_overrides[get_session]()
     session = await anext(generator)
-    user = (await session.scalars(select(User).where(User.email == "rick@saturn.ai"))).one()
+    user = (await session.scalars(select(User).where(User.email == "rick@example.com"))).one()
     run = Run(id=new_id("run"), organization_id=user.organization_id, agent_id="agent_customer_ops", input="billing.refund", status="waiting_approval")
     action = Action(id=new_id("act"), run_id=run.id, tool="billing.refund", arguments={}, status="waiting_approval")
     approval = Approval(id=new_id("apr"), run_id=run.id, action_id=action.id, status=status, execution_state=execution)
@@ -375,10 +375,10 @@ async def test_an_answer_that_cannot_be_saved_keeps_the_claim_as_uncertain(clien
         await generator.aclose()
 
 
-# A call that never left Saturn, and a claim nobody settled.
+# A call that never left Eisoptric, and a claim nobody settled.
 
 
-async def test_a_claimed_call_that_never_left_saturn_gives_the_approval_back(client):
+async def test_a_claimed_call_that_never_left_gateway_gives_the_approval_back(client):
     from app.features.credentials.vault.services.pq_crypto import KeyUnavailable
     from app.features.execution.approvals.services.claimed_call import NotSent
 
@@ -411,7 +411,7 @@ async def test_the_gateway_raises_not_sent_only_for_a_claimed_call(client, monke
     from app.features.credentials.vault.services.pq_crypto import KeyUnavailable
     from app.features.execution.approvals.services.claimed_call import NotSent
     from app.features.mcp.oauth.services.mcp_oauth import mcp_oauth
-    from app.features.mcp.saturn.services.saturn_mcp import saturn_mcp
+    from app.features.mcp.gateway.services.gateway_mcp import gateway_mcp
     from app.models import Tool
 
     async def unavailable(_session, _server):
@@ -420,11 +420,11 @@ async def test_the_gateway_raises_not_sent_only_for_a_claimed_call(client, monke
     monkeypatch.setattr(mcp_oauth, "authorization_for", unavailable)
     tool = Tool(id="tool_x", name="x", mcp_endpoint="https://mcp.example.com/mcp")
     with pytest.raises(NotSent) as held:
-        await saturn_mcp._proxy(None, tool, {}, claimed=True)
+        await gateway_mcp._proxy(None, tool, {}, claimed=True)
     assert isinstance(held.value.__cause__, KeyUnavailable)
     # An ordinary call keeps its error as it was.
     with pytest.raises(KeyUnavailable):
-        await saturn_mcp._proxy(None, tool, {})
+        await gateway_mcp._proxy(None, tool, {})
 
 
 async def test_a_claim_nobody_settled_becomes_uncertain_after_a_while(client, monkeypatch):

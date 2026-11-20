@@ -1,4 +1,4 @@
-"""initial saturn mvp schema
+"""initial gateway mvp schema
 
 Revision ID: 001_initial
 Revises:

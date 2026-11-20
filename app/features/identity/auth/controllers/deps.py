@@ -14,7 +14,7 @@ from app.features.credentials.vault.services.pq_crypto import warm_content_key
 from app.models import Employee, Organization, User
 from app.features.organization.org.services.access import allows
 from app.features.organization.org.services.mapping_service import mapping_service
-from app.features.organization.org.services.plans import PRO_REQUIRED, allows_pro, allows_saturn_cloud, suspended
+from app.features.organization.org.services.plans import PRO_REQUIRED, allows_pro, allows_gateway_cloud, suspended
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 _bearer = HTTPBearer(auto_error=False)
@@ -154,14 +154,14 @@ TeamRead = Annotated[Employee, Depends(require_access("team", "read"))]
 TeamWrite = Annotated[Employee, Depends(require_access("team", "write"))]
 
 
-async def require_saturn_cloud(session: SessionDep, user: CurrentUser) -> Organization:
+async def require_gateway_cloud(session: SessionDep, user: CurrentUser) -> Organization:
     org = await session.get(Organization, user.organization_id)
-    if org is None or not allows_saturn_cloud(org.plan):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Saturn MCP is unavailable")
+    if org is None or not allows_gateway_cloud(org.plan):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "MCP Gateway is unavailable")
     return org
 
 
-SaturnCloud = Annotated[Organization, Depends(require_saturn_cloud)]
+GatewayCloud = Annotated[Organization, Depends(require_gateway_cloud)]
 
 
 async def require_pro(session: SessionDep, user: CurrentUser) -> Organization:

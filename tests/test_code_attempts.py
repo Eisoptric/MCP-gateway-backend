@@ -43,20 +43,20 @@ async def test_parallel_guesses_cannot_share_one_attempt(client):
 
 
 async def test_reset_code_is_refused_once_the_cap_is_spent_behind_its_back(client):
-    requested = await client.post("/auth/forgot-password", json={"email": "rick@saturn.ai"})
+    requested = await client.post("/auth/forgot-password", json={"email": "rick@example.com"})
     assert requested.status_code == 204
     generator, session = await _db()
     try:
         await session.execute(
             update(PasswordReset)
-            .where(PasswordReset.email == "rick@saturn.ai")
+            .where(PasswordReset.email == "rick@example.com")
             .values(attempts=RESET_CODE_CEILING)
         )
         await session.commit()
     finally:
         await generator.aclose()
     tried = await client.post(
-        "/auth/reset-password", json={"email": "rick@saturn.ai", "code": "000000", "password": "a-new-password-1"}
+        "/auth/reset-password", json={"email": "rick@example.com", "code": "000000", "password": "a-new-password-1"}
     )
     assert tried.status_code == 400
 

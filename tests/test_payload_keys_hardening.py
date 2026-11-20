@@ -56,7 +56,7 @@ async def _gateway(client, monkeypatch, name="Zero Agent"):
         return {"content": [{"type": "text", "text": "ok"}]}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     connected = await client.post(
         "/mcp-servers",
         json={"name": "GitHub", "endpoint": "https://api.githubcopilot.com/mcp", "authorization": "token-1"},
@@ -71,7 +71,7 @@ async def _gateway(client, monkeypatch, name="Zero Agent"):
     async def call(arguments):
         sent = await client.post(
             "/mcp",
-            headers={"Authorization": f"Bearer {access}", "X-Saturn-Agent-Id": agent_id},
+            headers={"Authorization": f"Bearer {access}", "X-Eisoptric-Agent-Id": agent_id},
             json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.read", "arguments": arguments}},
         )
         assert sent.status_code == 200, sent.text
@@ -104,7 +104,7 @@ async def _approval_setup(client, monkeypatch, calls, policy_body):
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     connected = await client.post("/mcp-servers", json={"name": "Payments", "endpoint": "https://mcp.stripe.com/mcp", "authorization": "token-1"})
     tool_id = connected.json()["catalog"][0]["id"]
     created = await client.post("/tool-sets", json={"name": "Payments", "items": [{"tool_id": tool_id, "approval": True}]})
@@ -151,7 +151,7 @@ async def test_malformed_member_key_is_rejected_and_cannot_break_quorum_executio
     assert calls["n"] == 1
     plain = await client.post(
         "/mcp",
-        headers={"Authorization": f"Bearer {access}", "X-Saturn-Agent-Id": agent_id},
+        headers={"Authorization": f"Bearer {access}", "X-Eisoptric-Agent-Id": agent_id},
         json={"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "pay.send", "arguments": {"amount": 1}}},
     )
     assert plain.status_code == 200, plain.text
@@ -192,11 +192,11 @@ async def test_stored_bad_member_key_is_skipped_and_flagged_not_fatal(client, mo
     finally:
         await generator.aclose()
     call = await _gateway(client, monkeypatch)
-    record = await call({"repo": "saturn"})
+    record = await call({"repo": "gateway"})
     envelope = record["payload"]["envelope"]
     assert envelope["wrapped_dek"], "the organization wrap must never be dropped"
     assert all(item["member_key_id"] != "mpk_legacy_bad" for item in envelope["recipient_wraps"])
-    assert decrypt_payload(org_private, org, record["id"], "audit", envelope)["arguments"]["repo"] == "saturn"
+    assert decrypt_payload(org_private, org, record["id"], "audit", envelope)["arguments"]["repo"] == "gateway"
     generator, session = await _db(client)
     try:
         flagged = await session.get(MemberPayloadKey, "mpk_legacy_bad")
@@ -303,7 +303,7 @@ async def test_wraps_cannot_be_replaced_and_adding_needs_dek_proof(client, monke
     admin_private, admin_public = generate_mlkem()
     admin_key = (await client.post("/org/payload-keys/member", json={"public_key": admin_public.hex()})).json()["id"]
     call = await _gateway(client, monkeypatch)
-    record = await call({"repo": "saturn"})
+    record = await call({"repo": "gateway"})
     original = record["payload"]["envelope"]["recipient_wraps"]
     dek = _member_dek(admin_private, org, record, admin_key)
     assert dek is not None
@@ -370,7 +370,7 @@ async def test_rotation_rewrap_needs_owner_and_dek_proof(client, monkeypatch):
     old_private, _old_public = await _org_key(client)
     org = await _org_id(client)
     call = await _gateway(client, monkeypatch)
-    record = await call({"repo": "saturn"})
+    record = await call({"repo": "gateway"})
     _new_private, new_public = generate_mlkem()
     assert (await client.post("/org/payload-keys/rotate", json={"public_key": new_public.hex()})).status_code == 200
     pending = (await client.get("/org/payload-keys/rotate/pending", params={"version": 1})).json()
@@ -646,7 +646,7 @@ async def test_an_admin_replacement_key_waits_for_another_admin(client):
     # The seeded admin and a second admin each hold an approved key.
     _private, first = generate_mlkem()
     assert (await client.post("/org/payload-keys/member", json={"public_key": first.hex()})).json()["approval"] == "approved"
-    invited = await client.post("/org/invites", json={"email": "second-admin@saturn.ai", "name": "Second", "role": "admin"})
+    invited = await client.post("/org/invites", json={"email": "second-admin@example.com", "name": "Second", "role": "admin"})
     assert invited.status_code == 201, invited.text
     accepted = await client.post("/auth/accept-invite", json={"token": invited.json()["token"], "password": "password1"})
     assert accepted.status_code == 200, accepted.text
@@ -767,7 +767,7 @@ async def test_an_admin_can_take_the_key_over_from_an_owner_who_left(client):
     from tests.totp_access import finish_totp
 
     # A second admin creates the organization key, so they own it.
-    invited = await client.post("/org/invites", json={"email": "owner@saturn.ai", "name": "Owner", "role": "admin"})
+    invited = await client.post("/org/invites", json={"email": "owner@example.com", "name": "Owner", "role": "admin"})
     assert invited.status_code == 201, invited.text
     accepted = await client.post("/auth/accept-invite", json={"token": invited.json()["token"], "password": "password1"})
     assert accepted.status_code == 200, accepted.text

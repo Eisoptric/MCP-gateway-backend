@@ -7,14 +7,14 @@ from typing import Any
 POLICY_DENIED = "This tool call was denied by policy."
 NO_APPLICABLE_POLICY = "No policy applies to this tool call."
 APPROVAL_ARGS_MISMATCH = "These arguments do not match the approved call."
-_DASHBOARD = "https://dashboard.saturn-core.com"
+_DASHBOARD = "https://dashboard.eisoptric.com"
 
 
 def approval_pending(tool_name: str, run_id: str) -> str:
     return (
         "This tool call is waiting for approval. "
         f"After it is approved, call {tool_name} again with the same arguments "
-        f'and set saturnRunId to "{run_id}".'
+        f'and set gatewayRunId to "{run_id}".'
     )
 
 

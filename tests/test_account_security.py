@@ -33,7 +33,7 @@ async def test_password_changes_revoke_oauth_tokens(client, monkeypatch):
 
     changed = await client.patch(
         "/auth/password",
-        json={"current_password": "saturn", "new_password": "saturn-new"},
+        json={"current_password": "gateway", "new_password": "gateway-new"},
     )
     assert changed.status_code == 204, changed.text
     blocked = await client.post(
@@ -44,13 +44,13 @@ async def test_password_changes_revoke_oauth_tokens(client, monkeypatch):
     assert blocked.status_code == 401
     assert (await _refresh(client, refresh, client_id)).status_code == 400
 
-    requested = await client.post("/auth/forgot-password", json={"email": "rick@saturn.ai"})
+    requested = await client.post("/auth/forgot-password", json={"email": "rick@example.com"})
     assert requested.status_code == 204, requested.text
-    again = await client.post("/auth/forgot-password", json={"email": "nobody-reset@saturn.ai"})
+    again = await client.post("/auth/forgot-password", json={"email": "nobody-reset@example.com"})
     assert again.status_code == 204
-    limited = await client.post("/auth/forgot-password", json={"email": "nobody-reset@saturn.ai"})
+    limited = await client.post("/auth/forgot-password", json={"email": "nobody-reset@example.com"})
     assert limited.status_code == 429
-    known = await client.post("/auth/forgot-password", json={"email": "rick@saturn.ai"})
+    known = await client.post("/auth/forgot-password", json={"email": "rick@example.com"})
     assert known.status_code == 429
 
 
@@ -58,7 +58,7 @@ async def test_password_changes_revoke_oauth_tokens(client, monkeypatch):
 async def test_admin_reset_and_downgrade_revoke_oauth_tokens(client, monkeypatch):
     invited = await client.post(
         "/org/invites",
-        json={"email": "agent-user@saturn.ai", "name": "Agent User", "role": "operator"},
+        json={"email": "agent-user@example.com", "name": "Agent User", "role": "operator"},
     )
     assert invited.status_code == 201, invited.text
     accepted = await client.post(
@@ -70,7 +70,7 @@ async def test_admin_reset_and_downgrade_revoke_oauth_tokens(client, monkeypatch
     access, refresh, client_id = await oauth_tokens(
         client,
         "Operator Agent",
-        email="agent-user@saturn.ai",
+        email="agent-user@example.com",
         password="password1",
     )
     usable = await client.post(
@@ -97,14 +97,14 @@ async def test_admin_reset_and_downgrade_revoke_oauth_tokens(client, monkeypatch
     # The user, not the admin, picks the new password with the emailed code.
     chosen = await client.post(
         "/auth/reset-password",
-        json={"email": "agent-user@saturn.ai", "code": sent[-1][1], "password": "password2"},
+        json={"email": "agent-user@example.com", "code": sent[-1][1], "password": "password2"},
     )
     assert chosen.status_code == 204, chosen.text
 
     access, refresh, client_id = await oauth_tokens(
         client,
         "Operator Agent 2",
-        email="agent-user@saturn.ai",
+        email="agent-user@example.com",
         password="password2",
     )
     downgraded = await client.patch(f"/org/members/{member_id}", json={"role": "viewer"})
@@ -133,30 +133,30 @@ async def test_sensitive_changes_require_recent_auth_and_both_email_codes(client
     assert blocked.status_code == 403
     assert blocked.json()["detail"] == "Reauthentication required"
 
-    confirmed = await client.post("/auth/reauth", json={"password": "saturn"})
+    confirmed = await client.post("/auth/reauth", json={"password": "gateway"})
     assert confirmed.status_code == 204, confirmed.text
     monkeypatch.setattr("app.features.identity.auth.services.auth_service.RECENT_AUTH", __import__("datetime").timedelta(minutes=10))
     opened = await client.delete("/auth/mfa/email")
     assert opened.status_code == 204, opened.text
 
     monkeypatch.setattr("app.features.identity.auth.services.auth_service.RECENT_AUTH", __import__("datetime").timedelta(seconds=-1))
-    stale = await client.patch("/auth/me", json={"name": "Rick", "email": "rick-next@saturn.ai"})
+    stale = await client.patch("/auth/me", json={"name": "Rick", "email": "rick-next@example.com"})
     assert stale.status_code == 403
-    await client.post("/auth/reauth", json={"password": "saturn"})
+    await client.post("/auth/reauth", json={"password": "gateway"})
     monkeypatch.setattr("app.features.identity.auth.services.auth_service.RECENT_AUTH", __import__("datetime").timedelta(minutes=10))
-    started = await client.patch("/auth/me", json={"name": "Rick", "email": "rick-next@saturn.ai"})
+    started = await client.patch("/auth/me", json={"name": "Rick", "email": "rick-next@example.com"})
     assert started.status_code == 200, started.text
-    assert started.json()["email"] == "rick@saturn.ai"
+    assert started.json()["email"] == "rick@example.com"
     assert started.json()["email_change_pending"] is True
     current = next(code for email, code, kind in sent if kind == "email_current")
-    nxt = next(code for email, code, kind in sent if kind == "email_next" and email == "rick-next@saturn.ai")
+    nxt = next(code for email, code, kind in sent if kind == "email_next" and email == "rick-next@example.com")
     half = await client.post("/auth/email/confirm", json={"current_code": current, "next_code": "000000"})
     assert half.status_code == 400
     still = await client.get("/auth/me")
-    assert still.json()["email"] == "rick@saturn.ai"
+    assert still.json()["email"] == "rick@example.com"
     done = await client.post("/auth/email/confirm", json={"current_code": current, "next_code": nxt})
     assert done.status_code == 200, done.text
-    assert done.json()["email"] == "rick-next@saturn.ai"
+    assert done.json()["email"] == "rick-next@example.com"
 
 
 @pytest.mark.asyncio
@@ -167,20 +167,20 @@ async def test_public_signup_does_not_reveal_an_existing_account(client, monkeyp
     monkeypatch.setattr("app.features.identity.auth.controllers.auth.send_signup_code", noop)
     first = await client.post(
         "/auth/register/code",
-        json={"name": "New", "email": "fresh-account@saturn.ai", "password": "password1"},
+        json={"name": "New", "email": "fresh-account@example.com", "password": "password1"},
     )
     assert first.status_code == 204, first.text
     second_new = await client.post(
         "/auth/register/code",
-        json={"name": "New", "email": "fresh-account@saturn.ai", "password": "password1"},
+        json={"name": "New", "email": "fresh-account@example.com", "password": "password1"},
     )
     existing = await client.post(
         "/auth/register/code",
-        json={"name": "Rick", "email": "rick@saturn.ai", "password": "password1"},
+        json={"name": "Rick", "email": "rick@example.com", "password": "password1"},
     )
     second_existing = await client.post(
         "/auth/register/code",
-        json={"name": "Rick", "email": "rick@saturn.ai", "password": "password1"},
+        json={"name": "Rick", "email": "rick@example.com", "password": "password1"},
     )
     assert existing.status_code == 204, existing.text
     assert second_new.status_code == second_existing.status_code == 429
@@ -200,7 +200,7 @@ async def test_adding_a_factor_needs_a_recent_sign_in_and_tells_the_owner(client
         return True
 
     monkeypatch.setattr("app.features.identity.auth.controllers.auth.send_factor_added", capture)
-    invited = await client.post("/org/invites", json={"email": "factor@saturn.ai", "name": "Factor", "role": "viewer"})
+    invited = await client.post("/org/invites", json={"email": "factor@example.com", "name": "Factor", "role": "viewer"})
     assert invited.status_code == 201, invited.text
     accepted = await client.post("/auth/accept-invite", json={"token": invited.json()["token"], "password": "password1"})
     assert accepted.status_code == 200, accepted.text
@@ -220,7 +220,7 @@ async def test_adding_a_factor_needs_a_recent_sign_in_and_tells_the_owner(client
     assert setup.status_code == 200, setup.text
     confirmed = await client.post("/auth/totp/confirm", headers=member, json={"code": current_code(setup.json()["secret"])})
     assert confirmed.status_code == 204, confirmed.text
-    assert told == [("factor@saturn.ai", "totp")]
+    assert told == [("factor@example.com", "totp")]
 
 
 @pytest.mark.asyncio
@@ -247,4 +247,4 @@ async def test_signup_does_the_same_hashing_for_a_taken_address_as_for_a_free_on
         assert answer.status_code == 204, answer.text
         return len(hashed)
 
-    assert await cost("free-address@saturn.ai") == await cost("rick@saturn.ai") == 2
+    assert await cost("free-address@example.com") == await cost("rick@example.com") == 2

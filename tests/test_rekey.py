@@ -16,7 +16,7 @@ def _backup(tag: str) -> dict:
     return {"v": 2, "kdf": "CLIENT-SECRET", "scheme": "argon2id-hkdf-aesgcm-v2", "blob": f"{tag * 12}.{tag * 40}"}
 
 
-async def _account(client, monkeypatch, email="member@saturn.ai", password="correct horse"):
+async def _account(client, monkeypatch, email="member@example.com", password="correct horse"):
     invited = await client.post("/org/invites", json={"email": email, "name": "Member", "role": "operator"})
     assert invited.status_code == 201, invited.text
     accepted = await client.post(
@@ -44,7 +44,7 @@ async def _stored_blob(client, headers) -> tuple[str, str]:
 
 
 async def test_a_password_change_replaces_the_key_backup_in_the_same_request(client, monkeypatch):
-    email = "member@saturn.ai"
+    email = "member@example.com"
     headers, key_id = await _account(client, monkeypatch)
     changed = await client.patch(
         "/auth/password",
@@ -63,7 +63,7 @@ async def test_a_password_change_replaces_the_key_backup_in_the_same_request(cli
 
 
 async def test_a_wrong_current_password_changes_neither_the_password_nor_the_backup(client, monkeypatch):
-    email = "member@saturn.ai"
+    email = "member@example.com"
     headers, key_id = await _account(client, monkeypatch)
     refused = await client.patch(
         "/auth/password",
@@ -75,7 +75,7 @@ async def test_a_wrong_current_password_changes_neither_the_password_nor_the_bac
 
 
 async def test_a_bad_backup_refuses_the_whole_password_change(client, monkeypatch):
-    email = "member@saturn.ai"
+    email = "member@example.com"
     headers, key_id = await _account(client, monkeypatch)
     bad = {"v": 2, "kdf": "CLIENT-SECRET", "scheme": "not a scheme!", "blob": "x"}
     refused = await client.patch(
@@ -104,7 +104,7 @@ async def _start_email_change(client, monkeypatch, headers, new_email):
 
 
 async def test_an_email_change_keeps_the_password_working(client, monkeypatch):
-    old, new = "member@saturn.ai", "moved@saturn.ai"
+    old, new = "member@example.com", "moved@example.com"
     headers, key_id = await _account(client, monkeypatch)
     current, nxt = await _start_email_change(client, monkeypatch, headers, new)
     done = await client.post(
@@ -128,7 +128,7 @@ async def test_an_email_change_keeps_the_password_working(client, monkeypatch):
 
 
 async def test_an_email_change_with_a_wrong_password_does_not_change_the_email(client, monkeypatch):
-    old, new = "member@saturn.ai", "moved@saturn.ai"
+    old, new = "member@example.com", "moved@example.com"
     headers, key_id = await _account(client, monkeypatch)
     current, nxt = await _start_email_change(client, monkeypatch, headers, new)
     refused = await client.post(
@@ -149,7 +149,7 @@ async def test_an_email_change_with_a_wrong_password_does_not_change_the_email(c
 
 
 async def test_an_email_change_without_a_password_still_works_as_before(client, monkeypatch):
-    new = "moved@saturn.ai"
+    new = "moved@example.com"
     headers, _key_id = await _account(client, monkeypatch)
     current, nxt = await _start_email_change(client, monkeypatch, headers, new)
     done = await client.post("/auth/email/confirm", headers=headers, json={"current_code": current, "next_code": nxt})

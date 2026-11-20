@@ -10,7 +10,7 @@ from app.db.database import Base
 
 
 class McpAllowedHost(Base):
-    """A host an organization's admins approved for MCP servers, beside Saturn's own list.
+    """A host an organization's admins approved for MCP servers, beside Eisoptric's own list.
 
     Only the name is approved. Every connection to it still has to be HTTPS on port 443 and
     resolve to public addresses only, checked again on each request.

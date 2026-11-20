@@ -26,7 +26,7 @@ from app.features.execution.approvals.routes import router as approvals_router
 from app.features.execution.runs.routes import router as runs_router
 from app.features.identity.auth.routes import router as auth_router
 from app.features.identity.oauth.routes import router as oauth_router
-from app.features.mcp.saturn.routes import router as saturn_mcp_router
+from app.features.mcp.gateway.routes import router as gateway_mcp_router
 from app.features.mcp.servers.routes import router as mcp_servers_router
 from app.features.organization.org.controllers.groups import router as groups_router
 from app.features.organization.org.routes import router as org_router
@@ -78,7 +78,7 @@ async def lifespan(_app: FastAPI):
     from app.features.credentials.vault.services.pq_crypto import require_root
 
     require_root()
-    from app.features.mcp.saturn.services.mcp_sessions import mcp_sessions
+    from app.features.mcp.gateway.services.mcp_sessions import mcp_sessions
 
     await mcp_sessions.start()
     worker = report = sampler = None
@@ -99,7 +99,7 @@ async def lifespan(_app: FastAPI):
                 await session.commit()
             # A log line only. It runs beside the first requests instead of holding up the start.
             report = asyncio.create_task(_report_agents_without_policy())
-        if settings.saturn_embed_worker and not settings.skip_db_bootstrap:
+        if settings.gateway_embed_worker and not settings.skip_db_bootstrap:
             from app.features.webhooks.services.worker import run_status_sampler, run_webhook_worker
 
             worker = asyncio.create_task(run_webhook_worker())
@@ -119,9 +119,9 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="Saturn Backend",
+    title="MCP Gateway Backend",
     version="0.1.0",
-    description="Saturn MCP gateway and team permissions",
+    description="MCP Gateway and team permissions",
     lifespan=lifespan,
 )
 
@@ -173,7 +173,7 @@ app.include_router(credentials_router)
 app.include_router(mcp_servers_router)
 app.include_router(oauth_router)
 app.include_router(tool_sets_router)
-app.include_router(saturn_mcp_router)
+app.include_router(gateway_mcp_router)
 app.include_router(runs_router)
 app.include_router(tools_router)
 app.include_router(policies_router)

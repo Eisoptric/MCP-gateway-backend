@@ -79,7 +79,7 @@ gcloud artifacts repositories describe "${GAR_REPOSITORY}" \
 gcloud artifacts repositories create "${GAR_REPOSITORY}" \
   --location "${GAR_LOCATION}" \
   --repository-format docker \
-  --description "Saturn container images"
+  --description "Eisoptric container images"
 
 echo "Ensuring private service access on ${VPC_NETWORK}"
 if ! gcloud compute addresses describe google-managed-services-"${VPC_NETWORK}" \

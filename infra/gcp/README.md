@@ -1,8 +1,8 @@
-# Deploy Saturn to Google Cloud
+# Deploy Eisoptric to Google Cloud
 
-Each Saturn app is a separate GitHub repo. Push `main` to deploy that service to Cloud Run.
+Each Eisoptric app is a separate GitHub repo. Push `main` to deploy that service to Cloud Run.
 
-- Backend: Cloud Run (API `saturn-backend`, internal webhook worker `saturn-worker`) + Cloud SQL + Memorystore Redis
+- Backend: Cloud Run (API `gateway-backend`, internal webhook worker `gateway-worker`) + Cloud SQL + Memorystore Redis
 - Frontend: Cloud Run
 - Dashboard: Cloud Run
 
@@ -27,7 +27,7 @@ PROJECT_ID=your-gcp-project
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 GITHUB_ORG=YOUR_GITHUB_ORG
 POOL=github
-PROVIDER=saturn
+PROVIDER=gateway
 
 gcloud iam workload-identity-pools create "$POOL" \
   --location global \
@@ -48,7 +48,7 @@ condition holds for the deploy and provision jobs.
 Provider resource name to put in the `GCP_WORKLOAD_IDENTITY_PROVIDER` secret:
 
 ```
-projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/saturn
+projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/gateway
 ```
 
 ### Identities
@@ -57,10 +57,10 @@ Use one identity per job, each bound to one repo only:
 
 | Identity | Used by | Roles |
 |---|---|---|
-| `github-deployer-backend` | backend `deploy-cloud-run.yml` | `roles/run.developer` (project), `roles/run.admin` on the `saturn-backend` and `saturn-worker` services (lets the deploy set their invoker policy), `roles/vpcaccess.user` (project), `roles/artifactregistry.writer` on the `saturn` repository, `roles/iam.serviceAccountUser` on `saturn-runtime` only |
+| `github-deployer-backend` | backend `deploy-cloud-run.yml` | `roles/run.developer` (project), `roles/run.admin` on the `gateway-backend` and `gateway-worker` services (lets the deploy set their invoker policy), `roles/vpcaccess.user` (project), `roles/artifactregistry.writer` on the `gateway` repository, `roles/iam.serviceAccountUser` on `gateway-runtime` only |
 | `github-provisioner` | backend `provision-gcp.yml` | `roles/cloudsql.admin`, `roles/redis.admin`, `roles/compute.networkAdmin`, `roles/vpcaccess.admin`, `roles/artifactregistry.admin`, `roles/serviceusage.serviceUsageAdmin` |
-| `saturn-runtime` | the API, the worker and the migration job at runtime | see [Runtime service account](#runtime-service-account) |
-| one deployer per other repo | `saturn-frontend`, `saturn-dashboard`, `acme-demo` (repo `demosystem`) | `roles/run.developer` plus `roles/run.admin` on its own service, `roles/artifactregistry.writer` on its registry, `roles/iam.serviceAccountUser` on its own runtime SA |
+| `gateway-runtime` | the API, the worker and the migration job at runtime | see [Runtime service account](#runtime-service-account) |
+| one deployer per other repo | `gateway-frontend`, `gateway-dashboard`, `acme-demo` (repo `demosystem`) | `roles/run.developer` plus `roles/run.admin` on its own service, `roles/artifactregistry.writer` on its registry, `roles/iam.serviceAccountUser` on its own runtime SA |
 
 No identity holds `roles/iam.serviceAccountUser` on the whole project. That role on the project
 lets the holder deploy a service that runs as *any* service account. The frontend repos cannot
@@ -71,7 +71,7 @@ REGION=asia-east1
 GAR_LOCATION=asia-east1
 DEPLOYER=github-deployer-backend@${PROJECT_ID}.iam.gserviceaccount.com
 PROVISIONER=github-provisioner@${PROJECT_ID}.iam.gserviceaccount.com
-REPO_PRINCIPAL="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/attribute.repository/${GITHUB_ORG}/Saturn-MCP-Backend"
+REPO_PRINCIPAL="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/attribute.repository/${GITHUB_ORG}/MCP-gateway-backend"
 
 gcloud iam service-accounts create github-deployer-backend --display-name "GitHub deployer (backend)"
 gcloud iam service-accounts create github-provisioner --display-name "GitHub provisioner (backend)"
@@ -97,7 +97,7 @@ Set the backend repo secrets: `GCP_SERVICE_ACCOUNT_EMAIL=$DEPLOYER` and
 Then grant the resource-level roles, which need the resources to exist first:
 
 ```bash
-gcloud artifacts repositories add-iam-policy-binding saturn \
+gcloud artifacts repositories add-iam-policy-binding gateway \
   --location "$GAR_LOCATION" --member "serviceAccount:${DEPLOYER}" --role roles/artifactregistry.writer
 ```
 
@@ -106,7 +106,7 @@ Create the runtime service account ([below](#runtime-service-account)) with
 service, run:
 
 ```bash
-gcloud run services add-iam-policy-binding saturn-backend \
+gcloud run services add-iam-policy-binding gateway-backend \
   --region "$REGION" --member "serviceAccount:${DEPLOYER}" --role roles/run.admin
 ```
 
@@ -136,21 +136,21 @@ In the backend GitHub repo, set the variables below, then run **Actions → Prov
 
 | Variable | Example |
 |---|---|
-| `GCP_PROJECT_ID` | `saturn-prod` |
+| `GCP_PROJECT_ID` | `gateway-prod` |
 | `GCP_REGION` | `asia-east1` |
 | `GAR_LOCATION` | `asia-east1` |
-| `GAR_REPOSITORY` | `saturn` |
-| `CLOUD_SQL_INSTANCE` | `saturn-pg` |
-| `CLOUD_SQL_DATABASE` | `saturn` |
-| `CLOUD_SQL_USER` | `saturn` |
+| `GAR_REPOSITORY` | `gateway` |
+| `CLOUD_SQL_INSTANCE` | `gateway-pg` |
+| `CLOUD_SQL_DATABASE` | `gateway` |
+| `CLOUD_SQL_USER` | `gateway` |
 | `CLOUD_SQL_TIER` | `db-g1-small` (Enterprise edition) |
 | `CLOUD_SQL_AVAILABILITY_TYPE` | `zonal` (default) or `regional` |
 | `CLOUD_SQL_BACKUP_START_TIME` | `18:00` (UTC, default) |
-| `REDIS_INSTANCE` | `saturn-redis` |
+| `REDIS_INSTANCE` | `gateway-redis` |
 | `REDIS_TIER` | `BASIC` |
 | `REDIS_SIZE_GB` | `1` |
 | `VPC_NETWORK` | `default` |
-| `SERVERLESS_VPC_CONNECTOR` | `saturn-vpc` |
+| `SERVERLESS_VPC_CONNECTOR` | `gateway-vpc` |
 | `SERVERLESS_VPC_CONNECTOR_RANGE` | `10.8.0.0/28` |
 | `SETUP_RUNTIME_SERVICE_ACCOUNT` | unset; `true` only if the provision identity may grant IAM |
 
@@ -169,7 +169,7 @@ hardened:
 The job prints the Cloud SQL connection name and the Redis host and port. Then create the secrets:
 
 ```
-DATABASE_URL=postgresql+asyncpg://saturn:PASSWORD@/saturn?host=/cloudsql/PROJECT:REGION:INSTANCE
+DATABASE_URL=postgresql+asyncpg://gateway:PASSWORD@/gateway?host=/cloudsql/PROJECT:REGION:INSTANCE
 CLOUD_SQL_INSTANCE_CONNECTION_NAME=PROJECT:REGION:INSTANCE   # GitHub variable
 ```
 
@@ -188,7 +188,7 @@ Shared by all three repos:
 | `GCP_PROJECT_ID` | variable | all |
 | `GCP_REGION` | variable | all |
 | `GAR_LOCATION` | variable | all |
-| `GAR_REPOSITORY` | variable | all (default `saturn`) |
+| `GAR_REPOSITORY` | variable | all (default `gateway`) |
 | `RUNTIME_SERVICE_ACCOUNT` | variable | all (unset: each service keeps its current identity) |
 | `MAX_INSTANCES` | variable | all (default `10`) |
 
@@ -196,15 +196,15 @@ Backend only:
 
 | Name | Type | Default when unset |
 |---|---|---|
-| `BACKEND_CLOUD_RUN_SERVICE` | variable, e.g. `saturn-backend` | `saturn-backend` |
+| `BACKEND_CLOUD_RUN_SERVICE` | variable, e.g. `gateway-backend` | `gateway-backend` |
 | `CLOUD_SQL_INSTANCE_CONNECTION_NAME` | variable | required |
 | `SERVERLESS_VPC_CONNECTOR` | variable | required |
-| `SATURN_KMS_KEY` | variable, full `cryptoKeyVersions/N` name of the MAC key (a resource name, not key material; read by deploy and provisioning) | required |
+| `GATEWAY_KMS_KEY` | variable, full `cryptoKeyVersions/N` name of the MAC key (a resource name, not key material; read by deploy and provisioning) | required |
 | `CLOUD_SQL_PASSWORD` | secret, read only by provisioning; `rotate-db-password.sh` keeps it current | required to provision |
 | `GCP_PROVISION_SERVICE_ACCOUNT_EMAIL` | secret | provisioning uses `GCP_SERVICE_ACCOUNT_EMAIL` |
 | `CLOUD_RUN_INGRESS` | variable: `all`, `internal`, `internal-and-cloud-load-balancing` | the API keeps its current ingress |
 | `MIGRATIONS_JOB` | variable, `true` to run migrations in a Cloud Run Job | each container migrates on start |
-| `MIGRATIONS_JOB_NAME` | variable | `saturn-migrate` |
+| `MIGRATIONS_JOB_NAME` | variable | `gateway-migrate` |
 | `MIGRATIONS_DATABASE_URL_SECRET` | variable, secret name holding a schema-owner DSN | `DATABASE_URL` |
 | `MIGRATIONS_SERVICE_ACCOUNT` | variable | `RUNTIME_SERVICE_ACCOUNT` |
 | `SEED_ON_DEPLOY` | variable, `true` to mount `SEED_USER_*` on the API | not mounted |
@@ -213,14 +213,14 @@ Backend only:
 | `LEGACY_PASSWORD_UNTIL` | variable, `YYYY-MM-DD` | legacy (pre-argon2) passwords refused; set it only while accounts from before 2026-10-16 remain |
 | `IMAGE_ATTESTATIONS` | variable, `true` for provenance and SBOM | no attestations |
 | `CONSOLE_PROXY_SECRET_NAME` | variable, secret name shared with the console (set the same variable on Frontend) | console users share the per-address login limits |
-| `DEFAULT_ORG_ID`, `DEFAULT_ACTOR_ID` | variable | `org_saturn`, `user_operator` |
+| `DEFAULT_ORG_ID`, `DEFAULT_ACTOR_ID` | variable | `org_default`, `user_operator` |
 | `SEED_USER_NAME` | variable | `Admin` |
 | `SESSION_TTL_DAYS` | variable | `7` |
 | Provisioning: `CLOUD_SQL_*`, `REDIS_INSTANCE`, `REDIS_TIER`, `REDIS_SIZE_GB`, `VPC_NETWORK`, `SERVERLESS_VPC_CONNECTOR_RANGE`, `SETUP_RUNTIME_SERVICE_ACCOUNT` | variable | see [Provision data plane](#provision-data-plane) |
 
 The public origins are fixed in the workflows, not read from GitHub: the backend sets
-`PUBLIC_WS_URL=https://api.saturn-core.com` and `CORS_ORIGINS=https://dashboard.saturn-core.com`, and the
-frontend builds with `API_URL=https://api.saturn-core.com`. Change them in the workflow files.
+`PUBLIC_WS_URL=https://api.eisoptric.com` and `CORS_ORIGINS=https://dashboard.eisoptric.com`, and the
+frontend builds with `API_URL=https://api.eisoptric.com`. Change them in the workflow files.
 
 Runtime secrets live in **Secret Manager**, not GitHub. Cloud Run mounts them directly (see the
 table below), so the deploy job never reads their values:
@@ -229,24 +229,24 @@ table below), so the deploy job never reads their values:
 |---|---|
 | `DATABASE_URL`, `REDIS_URL` | yes |
 | `ORIGIN_AUTH_SECRET` | yes on Cloud Run |
-| `SATURN_GITHUB_OAUTH_CLIENT_ID` / `_SECRET`, `SATURN_GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | for social sign-in |
+| `GATEWAY_GITHUB_OAUTH_CLIENT_ID` / `_SECRET`, `GATEWAY_GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | for social sign-in |
 | `RESEND_API_KEY`, `RESEND_FROM` | for email |
 | `POLICY_LLM_BASE_URL`, `POLICY_LLM_API_KEY`, `POLICY_LLM_MODEL` | for policy drafting: an OpenAI-compatible `/chat/completions` endpoint, its key and the model name; drafting is off without them |
 | `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` | only read when `SEED_ON_DEPLOY=true` |
 
 GitHub repository secrets with those names are left over from before the move to Secret Manager.
-Nothing reads them; delete them. The same goes for `SATURN_KEM_SEED`, which the app stopped reading
-when tenant keys moved to Cloud KMS. Delete `SATURN_KEM_SEED` only after every stored value has been
+Nothing reads them; delete them. The same goes for `GATEWAY_KEM_SEED`, which the app stopped reading
+when tenant keys moved to Cloud KMS. Delete `GATEWAY_KEM_SEED` only after every stored value has been
 re-sealed under the KMS key.
 
 Frontend / Dashboard:
 
 | Name | Type |
 |---|---|
-| `FRONTEND_CLOUD_RUN_SERVICE` | variable, e.g. `saturn-frontend` |
-| `DASHBOARD_CLOUD_RUN_SERVICE` | variable, e.g. `saturn-dashboard` |
+| `FRONTEND_CLOUD_RUN_SERVICE` | variable, e.g. `gateway-frontend` |
+| `DASHBOARD_CLOUD_RUN_SERVICE` | variable, e.g. `gateway-dashboard` |
 
-The public API origin is `https://api.saturn-core.com`. The frontend bakes it into the `/saturn-api`
+The public API origin is `https://api.eisoptric.com`. The frontend bakes it into the `/gateway-api`
 HTTP rewrite, and the backend sets `PUBLIC_WS_URL` to it so MCP OAuth callbacks use
 `${PUBLIC_WS_URL}/mcp-servers/oauth/callback`. A `BACKEND_PUBLIC_URL` variable is no longer read.
 
@@ -260,7 +260,7 @@ unmounted.
 | `DATABASE_URL` | yes | yes | yes (or `MIGRATIONS_DATABASE_URL_SECRET`) |
 | `REDIS_URL` (or `REDIS_URL_SECRET`), `REDIS_CA_SECRET` | yes | yes | no |
 | `RESEND_API_KEY`, `RESEND_FROM` | yes | yes (approval expiry sends the task-outcome email) | no |
-| `SATURN_GITHUB_OAUTH_*`, `SATURN_GOOGLE_OAUTH_*` | yes | no | no |
+| `GATEWAY_GITHUB_OAUTH_*`, `GATEWAY_GOOGLE_OAUTH_*` | yes | no | no |
 | `POLICY_LLM_API_KEY` | yes | no | no |
 | `ORIGIN_AUTH_SECRET` | yes | no (internal ingress; fails closed) | no |
 | `CONSOLE_PROXY_SECRET_NAME` (when set) | yes | no | no |
@@ -292,10 +292,10 @@ Without `RUNTIME_SERVICE_ACCOUNT`, both services run as the project's default co
 account. In most projects that account holds `roles/editor`, so any SSRF or RCE in the app can read
 every secret and use every KMS key through the metadata server.
 
-`runtime-service-account.sh` creates `saturn-runtime` with:
+`runtime-service-account.sh` creates `gateway-runtime` with:
 
 - `roles/secretmanager.secretAccessor` on each runtime secret by name, not project-wide
-- `roles/cloudkms.signerVerifier` on the one key named by `SATURN_KMS_KEY`, the MAC key the app derives tenant keys with (`pq_crypto.py`)
+- `roles/cloudkms.signerVerifier` on the one key named by `GATEWAY_KMS_KEY`, the MAC key the app derives tenant keys with (`pq_crypto.py`)
 - `roles/cloudsql.client`, `roles/logging.logWriter`, `roles/monitoring.metricWriter`
 
 Redis needs no IAM: access is by network plus AUTH.
@@ -303,9 +303,9 @@ Redis needs no IAM: access is by network plus AUTH.
 1. As a project IAM admin:
 
    ```bash
-   GCP_PROJECT_ID=saturn-prod \
-   SATURN_KMS_KEY=projects/saturn-prod/locations/asia-east1/keyRings/saturn/cryptoKeys/kem-root/cryptoKeyVersions/1 \
-   DEPLOYER_SA=github-deployer-backend@saturn-prod.iam.gserviceaccount.com \
+   GCP_PROJECT_ID=gateway-prod \
+   GATEWAY_KMS_KEY=projects/gateway-prod/locations/asia-east1/keyRings/gateway/cryptoKeys/kem-root/cryptoKeyVersions/1 \
+   DEPLOYER_SA=github-deployer-backend@gateway-prod.iam.gserviceaccount.com \
    bash infra/gcp/runtime-service-account.sh   # from the Backend repo root
    ```
 
@@ -320,7 +320,7 @@ Redis needs no IAM: access is by network plus AUTH.
 Cloud Run keeps the last service account it was given. Unsetting the variable later does not switch
 back; deploy once with `--service-account` set to the old account to revert.
 
-If `SATURN_SECRET_PROJECT` is ever turned on, the app also creates and deletes `sat-org-*` secrets.
+If `GATEWAY_SECRET_PROJECT` is ever turned on, the app also creates and deletes `sat-org-*` secrets.
 Grant `roles/secretmanager.admin` with an IAM condition
 `resource.name.startsWith("projects/PROJECT_NUMBER/secrets/sat-")` in that project. Do not grant it
 project-wide.
@@ -339,9 +339,9 @@ Before the split, one `github-deployer` was shared by every repo. It holds proje
 the identities in [Identities](#identities):
 
 1. Create `github-deployer-backend` and `github-provisioner`, bind each to
-   `attribute.repository/ORG/Saturn-MCP-Backend` only, and grant the roles in the table.
+   `attribute.repository/ORG/MCP-gateway-backend` only, and grant the roles in the table.
 2. Run [Runtime service account](#runtime-service-account) with
-   `DEPLOYER_SA=github-deployer-backend@...`, so the new deployer can act as `saturn-runtime`.
+   `DEPLOYER_SA=github-deployer-backend@...`, so the new deployer can act as `gateway-runtime`.
 3. Set the backend secrets `GCP_SERVICE_ACCOUNT_EMAIL` (new deployer) and
    `GCP_PROVISION_SERVICE_ACCOUNT_EMAIL` (provisioner). Set `RUNTIME_SERVICE_ACCOUNT`. Deploy.
 4. Give the frontend and dashboard repos their own deployers the same way, then remove their
@@ -365,7 +365,7 @@ Restrict the existing provider so only `main` can get a token. This affects all 
 they all deploy from `main`.
 
 ```bash
-gcloud iam workload-identity-pools providers update-oidc saturn \
+gcloud iam workload-identity-pools providers update-oidc gateway \
   --location global \
   --workload-identity-pool github \
   --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.owner=assertion.repository_owner,attribute.ref=assertion.ref" \
@@ -381,7 +381,7 @@ instead of the names.
 
 Deployers trust a repository by name (`attribute.repository/ORG/NAME`), and GitHub's OIDC token
 carries the repository's current name. The repositories were renamed from `Backend` and
-`Frontend` to `Saturn-MCP-Backend` and `Saturn-MCP-Frontend`, so a deploy from the new names gets
+`Frontend` to `MCP-gateway-backend` and `MCP-gateway-frontend`, so a deploy from the new names gets
 no Google token until they are bound. [`rename-repos.sh`](rename-repos.sh) moves the bindings of
 `github-deployer-backend`, `github-provisioner` and `github-deployer-frontend`:
 
@@ -407,13 +407,13 @@ the migration, and it can be retried.
    `DATABASE_URL` (or `MIGRATIONS_DATABASE_URL_SECRET`) and `roles/cloudsql.client`. The runtime
    service account already has both.
 2. Set `MIGRATIONS_JOB=true` and deploy. The workflow deploys and executes
-   `saturn-migrate` (`alembic upgrade head`, one task, no retries, 15 min timeout) and waits for it.
+   `gateway-migrate` (`alembic upgrade head`, one task, no retries, 15 min timeout) and waits for it.
    It then deploys both services with `RUN_MIGRATIONS=false`. A failed migration stops the release
    before any service changes.
 3. Optional, least-privilege database: create a schema-owner role for migrations and a DML-only role
    for the app. Put the owner DSN in a secret, set `MIGRATIONS_DATABASE_URL_SECRET` to its name, and
    point `DATABASE_URL` at the DML-only role.
-4. Optional: `ALTER ROLE saturn SET idle_in_transaction_session_timeout = '60s';`. This bounds the
+4. Optional: `ALTER ROLE gateway SET idle_in_transaction_session_timeout = '60s';`. This bounds the
    stuck transactions that `env.py` used to terminate.
 
 ### Move Redis to AUTH and TLS
@@ -424,7 +424,7 @@ instance: MCP clients reconnect, and rate-limit windows restart.
 
 ```bash
 REGION=asia-east1
-NEW=saturn-redis-tls
+NEW=gateway-redis-tls
 ```
 
 `redis-tls.sh` does steps 1-4 and 6.
@@ -468,7 +468,7 @@ NEW=saturn-redis-tls
    gcloud run jobs create redis-check --region "$REGION" --image IMAGE@DIGEST \
      --command python --args=-c,"import os;import redis;print(redis.Redis.from_url(os.environ['REDIS_URL']).ping())" \
      --set-secrets REDIS_URL=REDIS_URL_TLS:latest,/etc/secrets/redis-ca/ca.pem=REDIS_CA:latest \
-     --vpc-connector saturn-vpc --vpc-egress private-ranges-only --execute-now --wait
+     --vpc-connector gateway-vpc --vpc-egress private-ranges-only --execute-now --wait
    gcloud run jobs delete redis-check --region "$REGION" --quiet
    ```
 
@@ -487,7 +487,7 @@ IP, add `&ssl_check_hostname=false` to the URL. The CA check alone still blocks 
 `bootstrap.sh` warns but never changes an existing instance. In a maintenance window:
 
 ```bash
-INSTANCE=saturn-pg
+INSTANCE=gateway-pg
 gcloud sql instances patch "$INSTANCE" --deletion-protection
 gcloud sql instances patch "$INSTANCE" --backup-start-time 18:00 --retained-backups-count 14 \
   --enable-point-in-time-recovery --retained-transaction-log-days 7
@@ -503,7 +503,7 @@ runner. `rotate-db-password.sh` rotates it end to end: the password set through 
 `DATABASE_URL` version, the API and worker rolled onto that version, and the GitHub secret. If
 it cannot write the secret after changing the password, it puts the old password back. By
 hand, use
-`gcloud sql users set-password saturn --instance saturn-pg --prompt-for-password` at an interactive
+`gcloud sql users set-password gateway --instance gateway-pg --prompt-for-password` at an interactive
 terminal. Then update the `DATABASE_URL` secret and redeploy.
 
 ### Restrict ingress to Cloudflare
@@ -519,40 +519,40 @@ allowing only Cloudflare IPs → Cloud Run with ingress `internal-and-cloud-load
    certificate cannot validate while Cloudflare proxies the hostname.
 
    ```bash
-   gcloud compute network-endpoint-groups create saturn-backend-neg --region "$REGION" \
-     --network-endpoint-type serverless --cloud-run-service saturn-backend
-   gcloud compute backend-services create saturn-backend-bs --global --load-balancing-scheme EXTERNAL_MANAGED
-   gcloud compute backend-services add-backend saturn-backend-bs --global \
-     --network-endpoint-group saturn-backend-neg --network-endpoint-group-region "$REGION"
-   gcloud compute url-maps create saturn-backend-lb --default-service saturn-backend-bs
-   gcloud compute ssl-certificates create saturn-api-origin --global \
+   gcloud compute network-endpoint-groups create gateway-backend-neg --region "$REGION" \
+     --network-endpoint-type serverless --cloud-run-service gateway-backend
+   gcloud compute backend-services create gateway-backend-bs --global --load-balancing-scheme EXTERNAL_MANAGED
+   gcloud compute backend-services add-backend gateway-backend-bs --global \
+     --network-endpoint-group gateway-backend-neg --network-endpoint-group-region "$REGION"
+   gcloud compute url-maps create gateway-backend-lb --default-service gateway-backend-bs
+   gcloud compute ssl-certificates create gateway-api-origin --global \
      --certificate origin.pem --private-key origin-key.pem
-   gcloud compute target-https-proxies create saturn-backend-https \
-     --url-map saturn-backend-lb --ssl-certificates saturn-api-origin
-   gcloud compute addresses create saturn-backend-ip --global
-   gcloud compute forwarding-rules create saturn-backend-https --global \
-     --load-balancing-scheme EXTERNAL_MANAGED --address saturn-backend-ip \
-     --target-https-proxy saturn-backend-https --ports 443
+   gcloud compute target-https-proxies create gateway-backend-https \
+     --url-map gateway-backend-lb --ssl-certificates gateway-api-origin
+   gcloud compute addresses create gateway-backend-ip --global
+   gcloud compute forwarding-rules create gateway-backend-https --global \
+     --load-balancing-scheme EXTERNAL_MANAGED --address gateway-backend-ip \
+     --target-https-proxy gateway-backend-https --ports 443
    ```
 
 2. Cloud Armor: deny by default, and allow Cloudflare's published ranges, at most 10 per rule.
 
    ```bash
-   gcloud compute security-policies create saturn-cloudflare-only
-   gcloud compute security-policies rules update 2147483647 --security-policy saturn-cloudflare-only --action deny-403
+   gcloud compute security-policies create gateway-cloudflare-only
+   gcloud compute security-policies rules update 2147483647 --security-policy gateway-cloudflare-only --action deny-403
    priority=1000
    { curl -sSf https://www.cloudflare.com/ips-v4; echo; curl -sSf https://www.cloudflare.com/ips-v6; } |
      grep . | xargs -n 10 | while read -r ranges; do
-       gcloud compute security-policies rules create "$priority" --security-policy saturn-cloudflare-only \
+       gcloud compute security-policies rules create "$priority" --security-policy gateway-cloudflare-only \
          --src-ip-ranges "${ranges// /,}" --action allow
        priority=$((priority + 1))
      done
-   gcloud compute backend-services update saturn-backend-bs --global --security-policy saturn-cloudflare-only
+   gcloud compute backend-services update gateway-backend-bs --global --security-policy gateway-cloudflare-only
    ```
 
    Cloudflare's ranges change rarely, but they do change. Re-run this when
    https://www.cloudflare.com/ips/ changes, or schedule it.
-3. Point the Cloudflare DNS record for `api.saturn-core.com` at the load balancer IP (proxied), with
+3. Point the Cloudflare DNS record for `api.eisoptric.com` at the load balancer IP (proxied), with
    SSL mode **Full (strict)**. Optionally turn on Authenticated Origin Pulls and require the
    Cloudflare client certificate on the load balancer (mTLS).
 4. Set `CLOUD_RUN_INGRESS=internal-and-cloud-load-balancing` and deploy. The `*.run.app` URL then
@@ -567,7 +567,7 @@ allowing only Cloudflare IPs → Cloud Run with ingress `internal-and-cloud-load
    2. `openssl rand -hex 32 | gcloud secrets versions add ORIGIN_AUTH_SECRET --data-file -`
    3. Set the repository variable `ORIGIN_AUTH_SECRET_PREVIOUS_NAME=ORIGIN_AUTH_SECRET_PREVIOUS`
       and deploy the backend. It now accepts both values.
-   4. Update the Cloudflare Transform Rule that sets `X-Saturn-Origin-Auth` to the new value.
+   4. Update the Cloudflare Transform Rule that sets `X-Eisoptric-Origin-Auth` to the new value.
    5. Remove the repository variable and deploy again, so the old value stops working.
 
    Rotate again on any suspected leak, and at least yearly.
@@ -575,7 +575,7 @@ allowing only Cloudflare IPs → Cloud Run with ingress `internal-and-cloud-load
 Once only Cloudflare can reach the service, the `CF-Connecting-IP` header the app reads for rate
 limits comes only from Cloudflare.
 
-The console (Frontend) needs the same treatment: its `*.run.app` URL proxies `/saturn-api` to the
+The console (Frontend) needs the same treatment: its `*.run.app` URL proxies `/gateway-api` to the
 API. Put it behind its own load balancer and Cloud Armor policy the same way, then set
 `CLOUD_RUN_INGRESS=internal-and-cloud-load-balancing` on the Frontend repo.
 
@@ -586,7 +586,7 @@ Cloudflare free plan, Bot Fight Mode challenges GitHub-hosted runners with a 403
 exempt a request from it. Requests from Google Cloud pass: the worker checks the API through its
 public address every minute, and those checks succeed.
 
-`uptime-checks.sh` creates, for each of `api.saturn-core.com` and `dashboard.saturn-core.com`:
+`uptime-checks.sh` creates, for each of `api.eisoptric.com` and `dashboard.eisoptric.com`:
 
 - an uptime check on `https://<host>/health` every 5 minutes from three regions, which passes only
   on a 200 with a valid certificate, and
@@ -609,7 +609,7 @@ check, which should be inside Cloud Monitoring's free allotment; check the curre
 
 Console requests reach the API from the console's own address, so `CF-Connecting-IP` names the
 console and every console user would share one login, sign-up and invite bucket. The console sends
-each browser's address in `X-Saturn-Client-IP` with a secret only it and the API hold, and the API
+each browser's address in `X-Eisoptric-Client-IP` with a secret only it and the API hold, and the API
 trusts that address only when the secret matches.
 
 1. `openssl rand -hex 32 | gcloud secrets create CONSOLE_PROXY_SECRET --data-file -`

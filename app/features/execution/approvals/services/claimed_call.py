@@ -30,7 +30,7 @@ class OutcomeUnrecorded(OutcomeUncertain):
 
 
 class NotSent(Exception):
-    """Raised by `send` when it stopped before anything left Saturn. The reason is its __cause__."""
+    """Raised by `send` when it stopped before anything left Eisoptric. The reason is its __cause__."""
 
 
 @dataclass(frozen=True)
@@ -62,7 +62,7 @@ class ClaimedCall:
     - failed: the upstream refused or could not be reached, and the error is raised as it came;
     - uncertain: the upstream may have run (a timeout, or its answer could not be saved).
 
-    One case gives the claim back instead: the call never left Saturn, for example because the
+    One case gives the claim back instead: the call never left Eisoptric, for example because the
     key service was down while its credentials were read. The approval stays approved, so the
     agent can send the call again once the cause is gone, and the error is raised as it came.
 

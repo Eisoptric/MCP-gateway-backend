@@ -15,7 +15,7 @@ async def seed_if_empty(session: AsyncSession) -> None:
         session.add(
             Organization(
                 id=settings.default_org_id,
-                name="Saturn",
+                name="Eisoptric",
                 status="active",
                 plan="enterprise",
                 kind="organization",

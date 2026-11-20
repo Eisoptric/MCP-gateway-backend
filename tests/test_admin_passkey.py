@@ -6,7 +6,7 @@ from app.core.config import get_settings
 from app.features.identity.oauth.services.oauth_service import pkce_s256
 from tests.passkey_access import ORIGIN, enrol
 
-LOGIN = {"email": "rick@saturn.ai", "password": "saturn"}
+LOGIN = {"email": "rick@example.com", "password": "gateway"}
 
 
 async def _admin_with_passkey(*, email_mfa: bool):

@@ -17,11 +17,11 @@ _FORM = {
 @pytest.mark.parametrize("path", ["/oauth/login", "/oauth/login/code"])
 async def test_oauth_sign_in_forms_are_refused_from_another_site(client, path):
     client.headers.pop("Authorization", None)
-    body = {**_FORM, "email": "rick@saturn.ai", "password": "saturn", "challenge": "x", "code": "000000"}
+    body = {**_FORM, "email": "rick@example.com", "password": "gateway", "challenge": "x", "code": "000000"}
 
     foreign = await client.post(path, data=body, headers={"Origin": "https://evil.example"})
     assert foreign.status_code == 403, foreign.text
-    assert "saturn_oauth" not in foreign.headers.get("set-cookie", "")
+    assert "eisoptric_oauth" not in foreign.headers.get("set-cookie", "")
     # A sandboxed frame or a stripped referrer reports the origin as "null".
     opaque = await client.post(path, data=body, headers={"Origin": "null"})
     assert opaque.status_code == 403, opaque.text
@@ -32,7 +32,7 @@ async def test_oauth_sign_in_forms_are_refused_from_another_site(client, path):
 @pytest.mark.parametrize("site", ["same-site", "cross-site", ""])
 async def test_a_null_origin_is_refused_unless_the_browser_says_same_origin(client, site):
     client.headers.pop("Authorization", None)
-    body = {**_FORM, "email": "rick@saturn.ai", "password": "saturn"}
+    body = {**_FORM, "email": "rick@example.com", "password": "gateway"}
     headers = {"Origin": "null", **({"Sec-Fetch-Site": site} if site else {})}
     refused = await client.post("/oauth/login", data=body, headers=headers, follow_redirects=False)
     assert refused.status_code == 403, refused.text
@@ -41,7 +41,7 @@ async def test_a_null_origin_is_refused_unless_the_browser_says_same_origin(clie
 async def test_ios_safari_signs_in_from_the_page_s_own_form(client):
     """WebKit posts a no-referrer page's form with Origin: null, and marks it same-origin."""
     client.headers.pop("Authorization", None)
-    body = {**_FORM, "email": "rick@saturn.ai", "password": "saturn"}
+    body = {**_FORM, "email": "rick@example.com", "password": "gateway"}
     own = await client.post(
         "/oauth/login", data=body, headers={"Origin": "null", "Sec-Fetch-Site": "same-origin"}, follow_redirects=False
     )
@@ -56,7 +56,7 @@ async def test_sign_in_fields_are_large_enough_that_ios_does_not_zoom(client):
 
 async def test_the_oauth_sign_in_page_still_signs_in_from_its_own_origin(client):
     client.headers.pop("Authorization", None)
-    body = {**_FORM, "email": "rick@saturn.ai", "password": "saturn"}
+    body = {**_FORM, "email": "rick@example.com", "password": "gateway"}
     # The form on this origin's own page: same origin, as a browser reports it.
     own = await client.post(
         "/oauth/login", data=body, headers={"Origin": "http://test", "Sec-Fetch-Site": "same-origin"}, follow_redirects=False
@@ -80,7 +80,7 @@ async def test_wrong_emailed_codes_are_capped_per_account_across_challenges(clie
     user_id = (await client.get("/auth/me")).json()["id"]
 
     async def challenge() -> str:
-        started = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": "saturn"})
+        started = await client.post("/auth/login", json={"email": "rick@example.com", "password": "gateway"})
         assert started.status_code == 200, started.text
         return started.json()["challenge"]
 
@@ -181,7 +181,7 @@ def test_cloud_run_never_falls_back_to_localhost_origins(monkeypatch):
 
     monkeypatch.setattr(main.settings, "cors_origins", "")
     assert main._cors_origins() == ["http://localhost:3000", "http://localhost:3001"]
-    monkeypatch.setenv("K_SERVICE", "saturn-backend")
+    monkeypatch.setenv("K_SERVICE", "gateway-backend")
     assert main._cors_origins() == []
 
 
@@ -204,7 +204,7 @@ async def _oauth_email_code_page(client, monkeypatch):
     registered = await client.post("/oauth/register", json={"client_name": "Phone", "redirect_uris": [_FORM["redirect_uri"]]})
     query = {**_FORM, "client_id": registered.json()["client_id"], "code_challenge": pkce_s256("c" * 43)}
     await client.get("/oauth/authorize", params=query)
-    page = await client.post("/oauth/login", data={**query, "email": "rick@saturn.ai", "password": "saturn"}, follow_redirects=False)
+    page = await client.post("/oauth/login", data={**query, "email": "rick@example.com", "password": "gateway"}, follow_redirects=False)
     assert page.status_code == 200 and 'name="method" value="email"' in page.text, page.text
     challenge = re.search(r'name="challenge" value="([^"]+)"', page.text).group(1)
     return query, challenge, sent

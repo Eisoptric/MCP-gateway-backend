@@ -41,7 +41,7 @@ GENERIC_DUTY = (
 
 
 def default_instructions(name: str = "", description: str = "") -> str:
-    who = (name or "").strip() or "a Saturn agent"
+    who = (name or "").strip() or "an Eisoptric agent"
     duty = (description or "").strip() or GENERIC_DUTY
     return (
         f"You are {who}.\n\n"

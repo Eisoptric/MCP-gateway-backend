@@ -71,10 +71,10 @@ jobs:
           persist-credentials: false
 
       - name: Build the image
-        run: docker build --pull --tag saturn-api:ci .
+        run: docker build --pull --tag gateway-api:ci .
 
       - name: Installed packages agree with each other
-        run: docker run --rm --entrypoint python saturn-api:ci -m pip check
+        run: docker run --rm --entrypoint python gateway-api:ci -m pip check
 
       # Imports every router and model with the production dependencies only. Nothing connects:
       # the engine is created lazily and the bootstrap is skipped.
@@ -83,7 +83,7 @@ jobs:
           docker run --rm --entrypoint python
           -e SKIP_DB_BOOTSTRAP=true
           -e DATABASE_URL=postgresql+asyncpg://ci:ci@127.0.0.1:1/ci
-          saturn-api:ci -c "import app.main"
+          gateway-api:ci -c "import app.main"
 
   # The tests above run on SQLite. Migrations are PostgreSQL DDL and nothing else ran them
   # before a deploy did, so a bad one was first seen in production.
@@ -93,18 +93,18 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: saturn
-          POSTGRES_PASSWORD: saturn-ci
-          POSTGRES_DB: saturn
+          POSTGRES_USER: gateway
+          POSTGRES_PASSWORD: gateway-ci
+          POSTGRES_DB: gateway
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U saturn -d saturn"
+          --health-cmd "pg_isready -U gateway -d gateway"
           --health-interval 2s
           --health-timeout 5s
           --health-retries 20
     env:
-      DATABASE_URL: postgresql+asyncpg://saturn:saturn-ci@localhost:5432/saturn
+      DATABASE_URL: postgresql+asyncpg://gateway:gateway-ci@localhost:5432/gateway
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

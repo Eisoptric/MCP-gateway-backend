@@ -32,8 +32,8 @@ def run_migrations_offline() -> None:
 
 
 # Any fixed 64-bit key works; it only has to be the same for every runner.
-# int.from_bytes(hashlib.sha256(b"saturn-alembic-upgrade").digest()[:8], "big", signed=True)
-_MIGRATION_LOCK_KEY = 3_886_794_715_833_081_572
+# int.from_bytes(hashlib.sha256(b"gateway-alembic-upgrade").digest()[:8], "big", signed=True)
+_MIGRATION_LOCK_KEY = 3_633_044_773_564_666_940
 # How long a second runner waits for the first to finish before giving up.
 _MIGRATION_LOCK_WAIT = os.environ.get("MIGRATION_LOCK_WAIT", "300s")
 # How long one DDL statement may wait on a table lock that a live request holds.

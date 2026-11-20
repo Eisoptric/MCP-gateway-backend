@@ -23,7 +23,7 @@ PRO_REQUIRED = "This feature requires Pro"
 GROUPS_REQUIRED = "Groups and multi-member approval require Team"
 
 
-# Saturn is free: every plan gets every feature. The plan names and these checks stay so that
+# Eisoptric is free: every plan gets every feature. The plan names and these checks stay so that
 # stored plans keep parsing and a paid tier can come back by changing these two functions.
 def allows_pro(plan: str | None) -> bool:
     return canonical_plan(plan) in PLANS
@@ -33,7 +33,7 @@ def allows_groups(plan: str | None) -> bool:
     return canonical_plan(plan) in PLANS
 
 
-def allows_saturn_cloud(plan: str | None) -> bool:
+def allows_gateway_cloud(plan: str | None) -> bool:
     """Every plan, including Free, can use the MCP gateway."""
     return canonical_plan(plan) in PLANS
 
@@ -51,7 +51,7 @@ def audit_retention_days(plan: str | None) -> int | None:
 def entitlements(plan: str | None) -> dict:
     pro = allows_pro(plan)
     return {
-        "gateway": allows_saturn_cloud(plan),
+        "gateway": allows_gateway_cloud(plan),
         "tool_set_limit": tool_set_limit(plan),
         "policies": pro,
         "webhooks": pro,

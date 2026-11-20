@@ -10,11 +10,11 @@ from app.core.public_origin import public_origin
 from app.features.identity.auth.controllers.deps import SessionDep
 from app.models import Organization, User
 from app.features.identity.oauth.services.oauth_service import oauth_service
-from app.features.organization.org.services.plans import allows_saturn_cloud, profile_identity, suspended
-from app.features.mcp.saturn.services.mcp_sessions import mcp_sessions
-from app.features.mcp.saturn.services.saturn_mcp import rpc_error, saturn_mcp
+from app.features.organization.org.services.plans import allows_gateway_cloud, profile_identity, suspended
+from app.features.mcp.gateway.services.mcp_sessions import mcp_sessions
+from app.features.mcp.gateway.services.gateway_mcp import rpc_error, gateway_mcp
 
-router = APIRouter(tags=["saturn-mcp"])
+router = APIRouter(tags=["gateway-mcp"])
 
 
 def _unauthorized(origin: str) -> HTTPException:
@@ -48,8 +48,8 @@ async def _caller(request: Request, session: SessionDep) -> tuple[User, str, str
     if not client_id:
         raise _unauthorized(origin)
     org = user.organization or await session.get(Organization, user.organization_id)
-    if org is None or not allows_saturn_cloud(org.plan):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Saturn MCP is unavailable")
+    if org is None or not allows_gateway_cloud(org.plan):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "MCP Gateway is unavailable")
     if suspended(org):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Organization is suspended")
     return user, client_name, client_id
@@ -75,7 +75,7 @@ async def _read_capped(request: Request) -> bytes | None:
 
 
 @router.post("/mcp")
-async def saturn_mcp_endpoint(request: Request, session: SessionDep) -> JSONResponse:
+async def gateway_mcp_endpoint(request: Request, session: SessionDep) -> JSONResponse:
     try:
         user, client_name, client_id = await _caller(request, session)
     except HTTPException:
@@ -105,7 +105,7 @@ async def saturn_mcp_endpoint(request: Request, session: SessionDep) -> JSONResp
     if not isinstance(message, dict):
         message = {}
     expected = profile_identity(user.id, org.id, org.kind, org.plan) if org is not None else ""
-    presented = (request.headers.get("x-saturn-profile") or "").strip()
+    presented = (request.headers.get("x-eisoptric-profile") or "").strip()
     if presented and expected and presented != expected:
         return JSONResponse(rpc_error(message.get("id", 1), -32000, "Profile does not match"))
     method = str(message.get("method") or "")
@@ -122,10 +122,10 @@ async def saturn_mcp_endpoint(request: Request, session: SessionDep) -> JSONResp
         session_id = incoming
     else:
         session_id = ""
-    body = await saturn_mcp.handle(
+    body = await gateway_mcp.handle(
         session,
         user,
-        agent_id=request.headers.get("x-saturn-agent-id", ""),
+        agent_id=request.headers.get("x-eisoptric-agent-id", ""),
         profile_id=presented or expected,
         client_name=client_name,
         client_id=client_id,
@@ -138,7 +138,7 @@ async def saturn_mcp_endpoint(request: Request, session: SessionDep) -> JSONResp
 
 
 @router.get("/mcp")
-async def saturn_mcp_listen(request: Request, session: SessionDep) -> StreamingResponse:
+async def gateway_mcp_listen(request: Request, session: SessionDep) -> StreamingResponse:
     user, _client_name, client_id = await _caller(request, session)
     session_id = (request.headers.get("mcp-session-id") or "").strip()
     record = await mcp_sessions.get(session_id, user.id, client_id)

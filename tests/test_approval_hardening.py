@@ -1,4 +1,4 @@
-"""Regression tests for the approval, run and Saturn MCP hardening (audit 2026-10-20)."""
+"""Regression tests for the approval, run and MCP Gateway hardening (audit 2026-10-20)."""
 
 import hashlib
 import json
@@ -41,7 +41,7 @@ async def _payments(client, monkeypatch, calls, seen, policy_body=None):
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     connected = await client.post(
         "/mcp-servers",
         json={"name": "Payments", "endpoint": "https://mcp.stripe.com/mcp", "authorization": "token-1"},
@@ -99,7 +99,7 @@ async def test_quorum_without_payload_key_sends_the_approved_arguments(client, m
         seen.append(arguments)
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
 
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     body = await _request(client, access, agent_id, {"amount": 42, "to": "acct_1"})
     approval_id = body["error"]["data"]["approval_id"]
     first = await client.post(f"/approvals/{approval_id}/approve", headers=_auth(people[0][1]))
@@ -137,7 +137,7 @@ async def test_legacy_digest_only_action_never_sends_the_digest_upstream(client,
         seen.append(arguments)
         return {"content": [{"type": "text", "text": "ok"}], "echo": arguments}
 
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     body = await _request(client, access, agent_id, {"amount": 7})
     approval_id = body["error"]["data"]["approval_id"]
     legacy = hashlib.sha256(json.dumps({"amount": 7}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -195,7 +195,7 @@ async def test_single_approver_checks_group_and_requester(client, monkeypatch):
     assert (await client.get(f"/approvals/{approval_id}")).json()["status"] == "pending"
     member = await client.post(f"/approvals/{approval_id}/approve", headers=_auth(people[0][1]))
     assert member.status_code == 200, member.text
-    ran = await _request(client, access, agent_id, {"amount": 900}, run_id=body["error"]["data"]["saturnRunId"])
+    ran = await _request(client, access, agent_id, {"amount": 900}, run_id=body["error"]["data"]["gatewayRunId"])
     assert ran["result"]["echo"] == {"amount": 900}
     assert calls["n"] == 1
 
@@ -311,7 +311,7 @@ async def test_failure_after_upstream_ran_never_executes_twice(client, monkeypat
     assert state["execution_state"] == "uncertain"
     third = await client.post(f"/approvals/{approval_id}/approve", headers=_auth(people[2][1]))
     assert third.status_code == 409, third.text
-    retry = await _request(client, access, agent_id, {"amount": 900}, run_id=body["error"]["data"]["saturnRunId"])
+    retry = await _request(client, access, agent_id, {"amount": 900}, run_id=body["error"]["data"]["gatewayRunId"])
     assert retry["error"]["message"] == "execution_uncertain"
     assert calls["n"] == 1
 
@@ -329,7 +329,7 @@ async def test_resubmit_failure_after_upstream_ran_is_uncertain(client, monkeypa
         return await original(*args, **kwargs)
 
     body = await _request(client, access, agent_id, {"amount": 3})
-    run_id = body["error"]["data"]["saturnRunId"]
+    run_id = body["error"]["data"]["gatewayRunId"]
     assert (await client.post(f"/approvals/{body['error']['data']['approval_id']}/approve", headers={"Authorization": f"Bearer {people[0][1]}"})).status_code == 200
     monkeypatch.setattr(audit_service, "log", broken)
     first = await _request(client, access, agent_id, {"amount": 3}, run_id=run_id)
@@ -352,14 +352,14 @@ async def test_resubmit_timeout_is_uncertain_not_claimed(client, monkeypatch):
         calls["n"] += 1
         raise McpTimeout("MCP server did not answer (ReadTimeout)")
 
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", slow)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", slow)
     body = await _request(client, access, agent_id, {"amount": 4})
     approval_id = body["error"]["data"]["approval_id"]
     assert (await client.post(f"/approvals/{approval_id}/approve", headers={"Authorization": f"Bearer {people[0][1]}"})).status_code == 200
-    first = await _request(client, access, agent_id, {"amount": 4}, run_id=body["error"]["data"]["saturnRunId"])
+    first = await _request(client, access, agent_id, {"amount": 4}, run_id=body["error"]["data"]["gatewayRunId"])
     assert first["error"]["message"] == "execution_uncertain"
     assert (await client.get(f"/approvals/{approval_id}")).json()["execution_state"] == "uncertain"
-    again = await _request(client, access, agent_id, {"amount": 4}, run_id=body["error"]["data"]["saturnRunId"])
+    again = await _request(client, access, agent_id, {"amount": 4}, run_id=body["error"]["data"]["gatewayRunId"])
     assert again["error"]["message"] == "execution_uncertain"
     assert calls["n"] == 1
 
@@ -385,7 +385,7 @@ async def test_resubmit_after_policy_turns_to_deny_closes_the_approval(client, m
         return EvaluationResult(decision=PolicyDecision.DENY, reason="blocked now")
 
     monkeypatch.setattr(engine_module.policy_engine, "evaluate_named", deny)
-    denied = await _request(client, access, agent_id, {"amount": 6}, run_id=body["error"]["data"]["saturnRunId"])
+    denied = await _request(client, access, agent_id, {"amount": 6}, run_id=body["error"]["data"]["gatewayRunId"])
     assert denied["error"]["data"]["code"] == "policy_denied"
     state = (await client.get(f"/approvals/{approval_id}")).json()
     assert state["status"] == "invalidated"
@@ -498,7 +498,7 @@ async def test_upstream_response_size_is_capped(monkeypatch):
 async def test_initialize_caps_agents_per_oauth_client(client):
     access = await oauth_access(client, "Many Names")
     headers = {"Authorization": f"Bearer {access}"}
-    from app.features.mcp.saturn.services.saturn_mcp import MAX_AGENTS_PER_CLIENT
+    from app.features.mcp.gateway.services.gateway_mcp import MAX_AGENTS_PER_CLIENT
 
     accepted = 0
     for index in range(MAX_AGENTS_PER_CLIENT * 3):
@@ -541,11 +541,11 @@ async def test_agent_cannot_choose_a_new_run_id(client, monkeypatch):
         await _close(generator)
     fresh = await _request(client, access, agent_id, {"amount": 2})
     assert fresh["error"]["data"]["code"] == "approval_pending"
-    assert fresh["error"]["data"]["saturnRunId"] != chosen
+    assert fresh["error"]["data"]["gatewayRunId"] != chosen
 
 
 async def test_www_authenticate_uses_the_configured_origin(client, monkeypatch):
-    monkeypatch.setenv("PUBLIC_WS_URL", "https://api.saturn-core.com")
+    monkeypatch.setenv("PUBLIC_WS_URL", "https://api.eisoptric.com")
     response = await client.post(
         "/mcp",
         headers={"Authorization": "", "Host": "evil.example"},
@@ -553,11 +553,11 @@ async def test_www_authenticate_uses_the_configured_origin(client, monkeypatch):
     )
     assert response.status_code == 401
     challenge = response.headers["www-authenticate"]
-    assert "https://api.saturn-core.com/.well-known/oauth-protected-resource" in challenge
+    assert "https://api.eisoptric.com/.well-known/oauth-protected-resource" in challenge
     assert "evil.example" not in challenge
-    monkeypatch.setenv("PUBLIC_WS_URL", "wss://ws.saturn-core.com")
+    monkeypatch.setenv("PUBLIC_WS_URL", "wss://ws.eisoptric.com")
     again = await client.post("/mcp", headers={"Authorization": ""}, json={"jsonrpc": "2.0", "id": 2, "method": "ping"})
-    assert 'resource_metadata="https://ws.saturn-core.com/.well-known/oauth-protected-resource"' in again.headers["www-authenticate"]
+    assert 'resource_metadata="https://ws.eisoptric.com/.well-known/oauth-protected-resource"' in again.headers["www-authenticate"]
 
 
 async def test_session_ids_are_server_issued_and_owned(client):
@@ -572,7 +572,7 @@ async def test_session_ids_are_server_issued_and_owned(client):
     assert opened.status_code == 200, opened.text
     issued = opened.headers["mcp-session-id"]
     assert issued and issued != chosen
-    from app.features.mcp.saturn.services.mcp_sessions import mcp_sessions
+    from app.features.mcp.gateway.services.mcp_sessions import mcp_sessions
 
     me = (await client.get("/auth/me")).json()["id"]
     assert await mcp_sessions.get(chosen, me, client_id) is None
@@ -674,13 +674,13 @@ def test_keyed_digest_accepts_legacy_rows():
     from app.features.execution.approvals.services.approval_arguments import digest_matches, keyed_digest, legacy_digest
 
     arguments = {"amount": 42, "to": "acct_1"}
-    keyed = keyed_digest("org_saturn", arguments)
+    keyed = keyed_digest("org_default", arguments)
     assert len(keyed) == 64
     assert keyed != legacy_digest(arguments)
     assert keyed != keyed_digest("org_other", arguments)
-    assert digest_matches("org_saturn", keyed, arguments)
-    assert digest_matches("org_saturn", legacy_digest(arguments), arguments)
-    assert not digest_matches("org_saturn", keyed, {"amount": 43, "to": "acct_1"})
+    assert digest_matches("org_default", keyed, arguments)
+    assert digest_matches("org_default", legacy_digest(arguments), arguments)
+    assert not digest_matches("org_default", keyed, {"amount": 43, "to": "acct_1"})
     assert not digest_matches("org_other", keyed, arguments)
 
 
@@ -724,7 +724,7 @@ async def test_mcp_refuses_oversized_bodies(client):
 
 
 async def test_an_agent_cannot_flood_the_approval_queue(client, monkeypatch):
-    from app.features.mcp.saturn.services import saturn_mcp as module
+    from app.features.mcp.gateway.services import gateway_mcp as module
 
     monkeypatch.setattr(module, "MAX_PENDING_APPROVALS_PER_AGENT", 2)
     calls, seen = {"n": 0}, []
@@ -751,7 +751,7 @@ async def test_an_executed_result_is_stored_sealed_and_still_replays(client, mon
     people, _groups, access, agent_id = await _payments(client, monkeypatch, calls, seen)
     body = await _request(client, access, agent_id, {"amount": 900})
     approval_id = body["error"]["data"]["approval_id"]
-    run_id = body["error"]["data"]["saturnRunId"]
+    run_id = body["error"]["data"]["gatewayRunId"]
     assert (await client.post(f"/approvals/{approval_id}/approve", headers=_auth(people[0][1]))).status_code == 200
     ran = await _request(client, access, agent_id, {"amount": 900}, run_id=run_id)
     assert ran["result"]["echo"] == {"amount": 900}

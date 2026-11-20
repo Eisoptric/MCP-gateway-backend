@@ -19,7 +19,7 @@ from app.shared.models.associations import agent_policies
 
 logger = logging.getLogger(__name__)
 
-MARKER = "saturn-default-v1"
+MARKER = "eisoptric-default-v1"
 _READ = {"read"}
 
 

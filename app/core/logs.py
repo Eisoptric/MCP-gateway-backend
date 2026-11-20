@@ -27,8 +27,8 @@ _trace_var: ContextVar[str] = ContextVar("trace", default="")
 
 REQUEST_ID_HEADER = "X-Request-Id"
 _QUIET_PATHS = frozenset({"/healthz", "/health", "/status", "/status/history", "/"})
-_requests = logging.getLogger("saturn.request")
-_errors = logging.getLogger("saturn.error")
+_requests = logging.getLogger("gateway.request")
+_errors = logging.getLogger("gateway.error")
 
 # Attributes every LogRecord has. Anything else was passed as extra= and belongs in the output.
 # color_message is uvicorn's copy of the message with terminal colour codes.
@@ -82,9 +82,9 @@ def configure_logging() -> None:
     handler.setFormatter(JsonFormatter() if style == "json" else TextFormatter())
     root = logging.getLogger()
     for existing in list(root.handlers):
-        if getattr(existing, "_saturn", False):
+        if getattr(existing, "_gateway", False):
             root.removeHandler(existing)
-    handler._saturn = True  # type: ignore[attr-defined]
+    handler._gateway = True  # type: ignore[attr-defined]
     root.addHandler(handler)
     root.setLevel(level)
     # uvicorn installs its own handlers; route its loggers through ours instead of twice.

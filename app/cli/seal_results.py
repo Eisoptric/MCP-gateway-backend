@@ -33,7 +33,7 @@ async def seal_plain_results(session: AsyncSession, apply: bool) -> int:
             await session.execute(
                 select(Action, Run.organization_id)
                 .join(Run, Run.id == Action.run_id)
-                .where(Action.id > last, Action.result.is_not(None), Action.policy_reason == "saturn_mcp")
+                .where(Action.id > last, Action.result.is_not(None), Action.policy_reason == "gateway_mcp")
                 .order_by(Action.id)
                 .limit(BATCH)
             )

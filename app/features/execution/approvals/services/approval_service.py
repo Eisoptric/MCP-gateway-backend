@@ -108,7 +108,7 @@ class ApprovalService:
             return await self._approve_quorum(
                 session, approval, action, run, agent, actor_id, employee, execution_arguments=execution_arguments
             )
-        mapped = action.policy_reason in {"tool_set_approval", "saturn_mcp"}
+        mapped = action.policy_reason in {"tool_set_approval", "gateway_mcp"}
 
         _tool, decision = await run_service.evaluate_action_policy(
             session, action, agent=agent
@@ -122,13 +122,13 @@ class ApprovalService:
                 session,
                 event=AuditEvent.RUN_FAILED,
                 actor_type=ActorType.SYSTEM,
-                actor_id="saturn",
+                actor_id="gateway",
                 organization_id=run.organization_id,
                 run_id=run.id,
                 action_id=action.id,
                 tool=action.tool,
                 result="policy_deny_on_approve",
-                payload={"source": "saturn_mcp"} if mapped else None,
+                payload={"source": "gateway_mcp"} if mapped else None,
             )
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
@@ -155,7 +155,7 @@ class ApprovalService:
             action_id=action.id,
             tool=action.tool,
             result="approved",
-            payload={"approval_id": approval.id, **({"source": "saturn_mcp"} if mapped else {})},
+            payload={"approval_id": approval.id, **({"source": "gateway_mcp"} if mapped else {})},
         )
 
         if mapped or not settings.in_process_runtime:
@@ -198,7 +198,7 @@ class ApprovalService:
         await self._ensure_open(session, approval)
         employee = await self._employee(session, actor_id, organization_id)
         await self._assert_voter(session, approval, employee, actor_id)
-        mapped = action.policy_reason in {"tool_set_approval", "saturn_mcp"}
+        mapped = action.policy_reason in {"tool_set_approval", "gateway_mcp"}
         await self._decide(session, approval, REJECT, actor_id)
         action.status = ActionStatus.REJECTED
         run.status = RunStatus.CANCELLED
@@ -214,7 +214,7 @@ class ApprovalService:
             action_id=action.id,
             tool=action.tool,
             result="rejected",
-            payload={"approval_id": approval.id, **({"source": "saturn_mcp"} if mapped else {})},
+            payload={"approval_id": approval.id, **({"source": "gateway_mcp"} if mapped else {})},
         )
         await notify_transition(session, run.organization_id, "approval.rejected", approval, action.tool)
         return await run_service.load_run(session, run.id), action
@@ -333,7 +333,7 @@ class ApprovalService:
                 session,
                 event=AuditEvent.APPROVAL_REQUESTED,
                 actor_type=ActorType.SYSTEM,
-                actor_id="saturn",
+                actor_id="gateway",
                 organization_id=organization_id,
                 run_id=approval.run_id,
                 action_id=approval.action_id,
@@ -448,7 +448,7 @@ class ApprovalService:
                 "approved_count": counts[0][0] if len(counts) == 1 else progress,
                 "required_count": approval.votes_needed,
                 "progress": progress,
-                "source": "saturn_mcp",
+                "source": "gateway_mcp",
             },
         )
         if prepared is None:
@@ -459,7 +459,7 @@ class ApprovalService:
             session,
             event=AuditEvent.APPROVAL_QUORUM,
             actor_type=ActorType.SYSTEM,
-            actor_id="saturn",
+            actor_id="gateway",
             organization_id=run.organization_id,
             run_id=run.id,
             action_id=action.id,
@@ -469,20 +469,20 @@ class ApprovalService:
                 "approval_id": approval.id,
                 "required_count": approval.votes_needed,
                 "progress": progress,
-                "source": "saturn_mcp",
+                "source": "gateway_mcp",
             },
         )
         await audit_service.log(
             session,
             event=AuditEvent.EXECUTION_CLAIMED,
             actor_type=ActorType.SYSTEM,
-            actor_id="saturn",
+            actor_id="gateway",
             organization_id=run.organization_id,
             run_id=run.id,
             action_id=action.id,
             tool=action.tool,
             result="claimed",
-            payload={"approval_id": approval.id, "source": "saturn_mcp"},
+            payload={"approval_id": approval.id, "source": "gateway_mcp"},
         )
         await notify_transition(session, run.organization_id, "approval.granted", approval, action.tool)
         # The claim must survive anything that fails after the upstream call, so it is committed first.
@@ -505,10 +505,10 @@ class ApprovalService:
         gateway = bool(getattr(tool, "mcp_server_id", None) or getattr(tool, "mcp_endpoint", None))
         if not gateway and settings.in_process_runtime:
             return _Prepared(tool=tool, gateway=False, arguments=None)
-        from app.features.mcp.saturn.services.saturn_mcp import saturn_mcp
+        from app.features.mcp.gateway.services.gateway_mcp import gateway_mcp
 
         # The same check tools/call makes: active, and still in this agent's tool set.
-        exposed = {item.id for item, _ in await saturn_mcp._exposed(session, agent)}
+        exposed = {item.id for item, _ in await gateway_mcp._exposed(session, agent)}
         if tool.id not in exposed:
             await self._invalidate(session, approval, action, "tool no longer available to this agent")
         return _Prepared(
@@ -556,7 +556,7 @@ class ApprovalService:
         prepared: _Prepared,
     ) -> None:
         """The last vote sends the approved call through the gateway."""
-        from app.features.mcp.saturn.services.saturn_mcp import saturn_mcp
+        from app.features.mcp.gateway.services.gateway_mcp import gateway_mcp
 
         arguments = prepared.arguments or {}
 
@@ -576,14 +576,14 @@ class ApprovalService:
                     "arguments": arguments,
                     "server_result": executed.result,
                     "raw_response": executed.raw,
-                    "source": "saturn_mcp",
+                    "source": "gateway_mcp",
                 },
             )
             await audit_service.log(
                 session,
                 event=AuditEvent.RUN_COMPLETED,
                 actor_type=ActorType.SYSTEM,
-                actor_id="saturn",
+                actor_id="gateway",
                 organization_id=run.organization_id,
                 run_id=run.id,
                 result="success",
@@ -591,11 +591,11 @@ class ApprovalService:
 
         call = ClaimedCall(session, approval, action, run, organization_id=run.organization_id)
         try:
-            await call.run(lambda: saturn_mcp._proxy(session, prepared.tool, arguments, claimed=True), audit)
+            await call.run(lambda: gateway_mcp._proxy(session, prepared.tool, arguments, claimed=True), audit)
         except OutcomeUnrecorded as exc:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
-                "The tool ran but Saturn could not record the outcome; treat it as uncertain",
+                "The tool ran but Eisoptric could not record the outcome; treat it as uncertain",
             ) from exc
         except OutcomeUncertain as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, "Upstream outcome is uncertain") from exc
@@ -659,7 +659,7 @@ class ApprovalService:
             action_id=action.id,
             tool=action.tool,
             result="revalidated",
-            payload={"approval_id": approval.id, "policy_version": fresh.policy_version, "source": "saturn_mcp"},
+            payload={"approval_id": approval.id, "policy_version": fresh.policy_version, "source": "gateway_mcp"},
         )
 
     async def _revalidate_versions(self, session: AsyncSession, approval: Approval, action: Action, fresh) -> None:
@@ -684,7 +684,7 @@ class ApprovalService:
                     session,
                     event=AuditEvent.APPROVAL_INVALIDATED,
                     actor_type=ActorType.SYSTEM,
-                    actor_id="saturn",
+                    actor_id="gateway",
                     organization_id=run.organization_id,
                     run_id=run.id,
                     action_id=action.id,

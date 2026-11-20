@@ -118,7 +118,7 @@ async def test_gateway_stores_ciphertext_and_admin_cannot_read_it(client, monkey
         return {"content": [{"type": "text", "text": "ok"}], "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     connected = await client.post(
         "/mcp-servers",
         json={"name": "GitHub", "endpoint": "https://api.githubcopilot.com/mcp", "authorization": "token-1"},
@@ -131,8 +131,8 @@ async def test_gateway_stores_ciphertext_and_admin_cannot_read_it(client, monkey
     await client.patch(f"/agents/{agent_id}", json={"tool_set_id": tool_set.json()["id"]})
     sent = await client.post(
         "/mcp",
-        headers={"Authorization": f"Bearer {access}", "X-Saturn-Agent-Id": agent_id},
-        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "saturn", "note": "secret note"}}},
+        headers={"Authorization": f"Bearer {access}", "X-Eisoptric-Agent-Id": agent_id},
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "gateway", "note": "secret note"}}},
     )
     assert sent.status_code == 200, sent.text
     activity = await client.get("/activity")
@@ -169,7 +169,7 @@ async def test_rotation_rewraps_the_dek_and_leaves_ciphertext_unchanged(client, 
         return {"content": [{"type": "text", "text": "ok"}]}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     connected = await client.post(
         "/mcp-servers",
         json={"name": "GitHub", "endpoint": "https://api.githubcopilot.com/mcp", "authorization": "token-1"},
@@ -182,8 +182,8 @@ async def test_rotation_rewraps_the_dek_and_leaves_ciphertext_unchanged(client, 
     await client.patch(f"/agents/{agent_id}", json={"tool_set_id": tool_set.json()["id"]})
     await client.post(
         "/mcp",
-        headers={"Authorization": f"Bearer {access}", "X-Saturn-Agent-Id": agent_id},
-        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "saturn"}}},
+        headers={"Authorization": f"Bearer {access}", "X-Eisoptric-Agent-Id": agent_id},
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "gateway"}}},
     )
     requested = next(item for item in (await client.get("/activity")).json() if item["event"] == "tool_requested" and item["tool"] == "repo.read")
     envelope = requested["payload"]["envelope"]
@@ -228,7 +228,7 @@ async def test_rotation_rewraps_the_dek_and_leaves_ciphertext_unchanged(client, 
     assert refreshed["payload"]["envelope"]["ciphertext"] == original_ciphertext
     assert refreshed["payload"]["envelope"]["org_key_version"] == 2
     opened = decrypt_payload(new_private, org, requested["id"], "audit", refreshed["payload"]["envelope"])
-    assert opened["arguments"]["repo"] == "saturn"
+    assert opened["arguments"]["repo"] == "gateway"
     names = [item["event"] for item in (await client.get("/org/payload-keys/audit")).json()["events"]]
     assert names.count("payload_rotation_started") == 1
     assert names.count("payload_rotation_activated") == 1

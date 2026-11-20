@@ -9,15 +9,15 @@
 set -euo pipefail
 
 : "${GCP_PROJECT_ID:?GCP_PROJECT_ID is required}"
-: "${SATURN_KMS_KEY:?SATURN_KMS_KEY is required: the full cryptoKeyVersion name}"
-GITHUB_ORG="${GITHUB_ORG:-Saturn-Technology-Project}"
+: "${GATEWAY_KMS_KEY:?GATEWAY_KMS_KEY is required: the full cryptoKeyVersion name}"
+GITHUB_ORG="${GITHUB_ORG:-eisoptric}"
 REGION="${GCP_REGION:-asia-east1}"
 POOL="${WIF_POOL:-github}"
-PROVIDER="${WIF_PROVIDER:-saturn}"
+PROVIDER="${WIF_PROVIDER:-gateway}"
 PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT_ID}" --format='value(projectNumber)')"
 OLD="github-deployer@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
 COMPUTE="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-KMS_KEY="${SATURN_KMS_KEY%/cryptoKeyVersions/*}"
+KMS_KEY="${GATEWAY_KMS_KEY%/cryptoKeyVersions/*}"
 
 echo "Checking that nothing still runs as the default compute account"
 still=$(gcloud run services list --project "${GCP_PROJECT_ID}" --region "${REGION}" \

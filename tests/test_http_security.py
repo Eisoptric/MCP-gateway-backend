@@ -13,9 +13,9 @@ async def test_api_docs_stay_available_for_local_development(client):
 
 @pytest.mark.parametrize("path", DOC_PATHS)
 async def test_cloud_run_hides_api_docs(client, monkeypatch, path):
-    monkeypatch.setenv("K_SERVICE", "saturn-backend")
+    monkeypatch.setenv("K_SERVICE", "gateway-backend")
     monkeypatch.setenv("ORIGIN_AUTH_SECRET", "expected-value")
-    hidden = await client.get(path, headers={"X-Saturn-Origin-Auth": "expected-value"})
+    hidden = await client.get(path, headers={"X-Eisoptric-Origin-Auth": "expected-value"})
     assert hidden.status_code == 404
     assert hidden.json()["detail"] == "Not found"
 
@@ -86,9 +86,9 @@ async def test_hsts_is_sent_when_the_request_arrived_over_https(client):
 def test_production_trusts_only_https_origins(monkeypatch):
     from app.core.config import Settings
 
-    monkeypatch.setenv("K_SERVICE", "saturn-backend")
-    settings = Settings(cors_origins="http://localhost:3000,https://dashboard.saturn-core.com, http://evil.test")
-    assert settings.cors_origins == "https://dashboard.saturn-core.com"
+    monkeypatch.setenv("K_SERVICE", "gateway-backend")
+    settings = Settings(cors_origins="http://localhost:3000,https://dashboard.eisoptric.com, http://evil.test")
+    assert settings.cors_origins == "https://dashboard.eisoptric.com"
     monkeypatch.delenv("K_SERVICE")
-    local = Settings(cors_origins="http://localhost:3000,https://dashboard.saturn-core.com")
-    assert local.cors_origins == "http://localhost:3000,https://dashboard.saturn-core.com"
+    local = Settings(cors_origins="http://localhost:3000,https://dashboard.eisoptric.com")
+    assert local.cors_origins == "http://localhost:3000,https://dashboard.eisoptric.com"

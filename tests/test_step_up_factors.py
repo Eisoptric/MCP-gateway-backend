@@ -38,11 +38,11 @@ async def test_an_account_with_totp_needs_its_code_as_well_as_the_password(clien
     secret = await _with_totp(client)
 
     await _stale(monkeypatch)
-    alone = await client.post("/auth/reauth", json={"password": "saturn"})
+    alone = await client.post("/auth/reauth", json={"password": "gateway"})
     assert alone.status_code == 403, alone.text
     assert alone.json()["detail"]["second_factor"] == "totp"
 
-    wrong = await client.post("/auth/reauth", json={"password": "saturn", "totp_code": "000000"})
+    wrong = await client.post("/auth/reauth", json={"password": "gateway", "totp_code": "000000"})
     assert wrong.status_code == 400, wrong.text
 
     # A right code with a wrong password is still refused, and it is checked first.
@@ -50,7 +50,7 @@ async def test_an_account_with_totp_needs_its_code_as_well_as_the_password(clien
     assert bad_password.status_code == 401
 
     monkeypatch.setattr("app.features.identity.auth.services.auth_service.RECENT_AUTH", timedelta(minutes=10))
-    ok = await client.post("/auth/reauth", json={"password": "saturn", "totp_code": next_code(secret)})
+    ok = await client.post("/auth/reauth", json={"password": "gateway", "totp_code": next_code(secret)})
     assert ok.status_code == 204, ok.text
     # The step-up now covers adding a passkey.
     options = await client.post("/auth/passkeys/options", headers={"Origin": ORIGIN})
@@ -74,9 +74,9 @@ async def test_a_backup_code_also_completes_step_up(client, monkeypatch):
         await session.commit()
     finally:
         await generator.aclose()
-    ok = await client.post("/auth/reauth", json={"password": "saturn", "totp_code": "0123456789abcdef"})
+    ok = await client.post("/auth/reauth", json={"password": "gateway", "totp_code": "0123456789abcdef"})
     assert ok.status_code == 204, ok.text
-    again = await client.post("/auth/reauth", json={"password": "saturn", "totp_code": "0123456789abcdef"})
+    again = await client.post("/auth/reauth", json={"password": "gateway", "totp_code": "0123456789abcdef"})
     assert again.status_code == 400
 
 
@@ -108,7 +108,7 @@ async def test_an_account_whose_strong_factor_is_a_passkey_confirms_with_it(clie
     finally:
         await generator.aclose()
 
-    alone = await client.post("/auth/reauth", json={"password": "saturn"})
+    alone = await client.post("/auth/reauth", json={"password": "gateway"})
     assert alone.status_code == 403
     assert alone.json()["detail"]["second_factor"] == "passkey"
 
@@ -123,7 +123,7 @@ async def test_an_account_whose_strong_factor_is_a_passkey_confirms_with_it(clie
 
 
 async def test_an_account_without_a_second_factor_still_uses_the_password_alone(client):
-    assert (await client.post("/auth/reauth", json={"password": "saturn"})).status_code == 204
+    assert (await client.post("/auth/reauth", json={"password": "gateway"})).status_code == 204
 
 
 async def _with_email_mfa() -> None:
@@ -151,12 +151,12 @@ async def test_an_account_with_emailed_codes_needs_the_code_as_well_as_the_passw
     assert (await client.post("/auth/reauth", json={"password": "nope-nope"})).status_code == 401
     assert sent == []
 
-    alone = await client.post("/auth/reauth", json={"password": "saturn"})
+    alone = await client.post("/auth/reauth", json={"password": "gateway"})
     assert alone.status_code == 403, alone.text
     assert alone.json()["detail"]["second_factor"] == "email"
     assert len(sent) == 1
     # Asking again within the minute is answered the same way; the code already sent still works.
-    again = await client.post("/auth/reauth", json={"password": "saturn"})
+    again = await client.post("/auth/reauth", json={"password": "gateway"})
     assert again.status_code == 403
     assert len(sent) == 1
 
@@ -165,17 +165,17 @@ async def test_an_account_with_emailed_codes_needs_the_code_as_well_as_the_passw
     assert code_only.status_code == 403
     assert code_only.json()["detail"]["second_factor"] == "email"
 
-    wrong = await client.post("/auth/reauth", json={"password": "saturn", "code": f"{(int(sent[-1]) + 1) % 1_000_000:06d}"})
+    wrong = await client.post("/auth/reauth", json={"password": "gateway", "code": f"{(int(sent[-1]) + 1) % 1_000_000:06d}"})
     assert wrong.status_code == 400
 
     await _stale(monkeypatch)
-    ok = await client.post("/auth/reauth", json={"password": "saturn", "code": sent[-1]})
+    ok = await client.post("/auth/reauth", json={"password": "gateway", "code": sent[-1]})
     assert ok.status_code == 204, ok.text
     monkeypatch.setattr("app.features.identity.auth.services.auth_service.RECENT_AUTH", timedelta(minutes=10))
     options = await client.post("/auth/passkeys/options", headers={"Origin": ORIGIN})
     assert options.status_code == 200, options.text
     # The code was used up.
-    assert (await client.post("/auth/reauth", json={"password": "saturn", "code": sent[-1]})).status_code == 400
+    assert (await client.post("/auth/reauth", json={"password": "gateway", "code": sent[-1]})).status_code == 400
 
 
 async def test_a_right_code_with_a_wrong_password_is_refused(client, monkeypatch):
@@ -239,7 +239,7 @@ async def test_changing_the_password_does_not_count_as_step_up(client):
         await generator.aclose()
     assert (await client.post("/auth/passkeys/options", headers={"Origin": ORIGIN})).status_code == 403
 
-    changed = await client.patch("/auth/password", json={"current_password": "saturn", "new_password": "saturn-changed-1"})
+    changed = await client.patch("/auth/password", json={"current_password": "gateway", "new_password": "gateway-changed-1"})
     assert changed.status_code == 204, changed.text
     # Still signed in, and still asked for the second factor.
     assert (await client.get("/auth/me")).status_code == 200

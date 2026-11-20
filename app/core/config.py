@@ -8,20 +8,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql+asyncpg://saturn:saturn@localhost:5432/saturn"
+    database_url: str = "postgresql+asyncpg://gateway:gateway@localhost:5432/gateway"
     redis_url: str = "redis://localhost:6379/0"
-    default_org_id: str = "org_saturn"
+    default_org_id: str = "org_default"
     default_actor_id: str = "user_operator"
     skip_db_bootstrap: bool = False
     session_ttl_days: int = 7
     seed_user_email: str = ""
     seed_user_name: str = "Admin"
     seed_user_password: str = ""
-    cors_origins: str = "http://localhost:3000,http://localhost:3001,https://dashboard.saturn-core.com"
+    cors_origins: str = "http://localhost:3000,http://localhost:3001,https://dashboard.eisoptric.com"
     in_process_runtime: bool = False
     policy_default_deny: bool = True
-    saturn_embed_worker: bool = True
-    saturn_secret_project: str = ""
+    gateway_embed_worker: bool = True
+    gateway_secret_project: str = ""
     resend_api_key: str = ""
     resend_from: str = ""
     policy_llm_base_url: str = ""

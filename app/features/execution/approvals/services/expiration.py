@@ -186,14 +186,14 @@ async def _record_expiry(session: AsyncSession, approval: Approval, phase: str, 
         run.updated_at = now
     organization_id = run.organization_id if run is not None else ""
     tool = action.tool if action is not None else ""
-    mapped = action is not None and action.policy_reason in {"tool_set_approval", "saturn_mcp"}
+    mapped = action is not None and action.policy_reason in {"tool_set_approval", "gateway_mcp"}
     if not organization_id:
         return
     await audit_service.log(
         session,
         event=AuditEvent.APPROVAL_EXPIRED,
         actor_type=ActorType.SYSTEM,
-        actor_id="saturn",
+        actor_id="gateway",
         organization_id=organization_id,
         run_id=approval.run_id,
         action_id=approval.action_id,
@@ -203,7 +203,7 @@ async def _record_expiry(session: AsyncSession, approval: Approval, phase: str, 
             "approval_id": approval.id,
             "phase": phase,
             "reason": "APPROVAL_EXPIRED",
-            **({"source": "saturn_mcp"} if mapped else {}),
+            **({"source": "gateway_mcp"} if mapped else {}),
         },
     )
     await notify_transition(session, organization_id, "approval.expired", approval, tool, phase)

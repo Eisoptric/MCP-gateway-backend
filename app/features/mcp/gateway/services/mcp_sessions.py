@@ -12,7 +12,7 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
-CHANNEL = "saturn:mcp:events"
+CHANNEL = "gateway:mcp:events"
 SESSION_TTL = 86_400
 # What one process keeps in memory. A record is small, but nothing else ever removed one.
 MAX_LOCAL_SESSIONS = 10_000
@@ -90,7 +90,7 @@ class McpSessionHub:
             self._evict_local(session_id, agent_id, client_id)
             return self._attach(session_id, user_id, agent_id, client_id)
         payload = self._record(session_id, user_id, agent_id, client_id)
-        created = await self._redis.set(f"saturn:mcp:session:{session_id}", payload, ex=SESSION_TTL, nx=True)
+        created = await self._redis.set(f"gateway:mcp:session:{session_id}", payload, ex=SESSION_TTL, nx=True)
         if not created:
             return await self.get(session_id, user_id, client_id)
         await self._claim_owner(session_id, agent_id, client_id)
@@ -108,7 +108,7 @@ class McpSessionHub:
             self._evict_local(session_id, agent_id, client_id)
             return record
         await self._redis.set(
-            f"saturn:mcp:session:{session_id}",
+            f"gateway:mcp:session:{session_id}",
             self._record(session_id, user_id, agent_id, client_id),
             ex=SESSION_TTL,
             xx=True,
@@ -131,10 +131,10 @@ class McpSessionHub:
         assert self._redis is not None
         if not agent_id:
             return
-        owner_key = f"saturn:mcp:owner:{agent_id}:{client_id}"
+        owner_key = f"gateway:mcp:owner:{agent_id}:{client_id}"
         previous = await self._redis.get(owner_key)
         if previous and previous != session_id:
-            await self._redis.delete(f"saturn:mcp:session:{previous}")
+            await self._redis.delete(f"gateway:mcp:session:{previous}")
             self._close_local(previous)
             await self._redis.publish(CHANNEL, json.dumps({"kind": "close", "session_id": previous}))
         await self._redis.set(owner_key, session_id, ex=SESSION_TTL)
@@ -143,7 +143,7 @@ class McpSessionHub:
         local = self._local_get(session_id, user_id, client_id)
         if local is not None or self._redis is None:
             return local
-        raw = await self._redis.get(f"saturn:mcp:session:{session_id}")
+        raw = await self._redis.get(f"gateway:mcp:session:{session_id}")
         if not raw:
             return None
         try:
@@ -169,7 +169,7 @@ class McpSessionHub:
         self._close_local(session_id)
         if self._redis is None:
             return
-        await self._redis.delete(f"saturn:mcp:session:{session_id}")
+        await self._redis.delete(f"gateway:mcp:session:{session_id}")
         await self._redis.publish(CHANNEL, json.dumps({"kind": "close", "session_id": session_id}))
 
     def listen(self, record: McpSession) -> tuple[int, asyncio.Queue]:

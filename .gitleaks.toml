@@ -1,6 +1,6 @@
 # gitleaks configuration. CI runs gitleaks 8.30.1 against the working tree and
 # the full git history with this file. [[allowlists]] needs gitleaks 8.25 or newer.
-title = "Saturn backend"
+title = "Eisoptric backend"
 
 [extend]
 # Keep every built-in rule; this file only adds narrow exceptions.

@@ -8,12 +8,12 @@ def test_verification_email_uses_the_account_language():
 
     zh_subject, zh_text, zh_html = _code_message("482193", "signup", "zh-Hant")
     en_subject, en_text, en_html = _code_message("482193", "signup", "en-US")
-    assert zh_subject == "482193 是你的 Saturn 帳號確認碼"
+    assert zh_subject == "482193 是你的 Eisoptric 帳號確認碼"
     assert "確認你的帳號" in zh_text
     assert "Confirm your account" not in zh_text
     assert 'lang="zh-Hant"' in zh_html
     assert "Confirm your account" not in zh_html
-    assert en_subject == "482193 is your Saturn confirmation code"
+    assert en_subject == "482193 is your Eisoptric confirmation code"
     assert "Confirm your account" in en_text
     assert "確認你的帳號" not in en_text
     assert 'lang="en-US"' in en_html
@@ -22,9 +22,9 @@ def test_verification_email_uses_the_account_language():
     assert "<script" not in zh_html
 
     notice_subject, notice_text, notice_html = _notice_message(
-        "approval", "billing.refund", "Acme Ops", "https://dashboard.saturn-core.com/activity?event=1", "en-US"
+        "approval", "billing.refund", "Acme Ops", "https://dashboard.eisoptric.com/activity?event=1", "en-US"
     )
-    assert notice_subject == "Saturn: Approval required — billing.refund"
+    assert notice_subject == "Eisoptric: Approval required — billing.refund"
     assert "Approval required" in notice_text
     assert "需要核准" not in notice_text
     assert "需要核准" not in notice_html
@@ -47,9 +47,9 @@ async def test_login_and_me(client):
     assert me.status_code == 200
     body = me.json()
     assert body["id"] == "user_operator"
-    assert body["email"] == "rick@saturn.ai"
-    assert body["organization"]["id"] == "org_saturn"
-    assert body["enterprise"]["id"] == "org_saturn"
+    assert body["email"] == "rick@example.com"
+    assert body["organization"]["id"] == "org_default"
+    assert body["enterprise"]["id"] == "org_default"
     assert body["role"] == "admin"
     assert body["permissions"]["team"] == "write"
     assert body["locale"] == "zh-Hant"
@@ -82,21 +82,21 @@ async def test_legacy_password_is_refused_after_the_deadline(client, monkeypatch
 
     refused = await client.post(
         "/auth/login",
-        json={"email": "rick@saturn.ai", "password": "v2." + ("ab" * 32), "legacy_password": "correct horse"},
+        json={"email": "rick@example.com", "password": "v2." + ("ab" * 32), "legacy_password": "correct horse"},
     )
     assert refused.status_code == 401
     assert refused.json()["detail"]["migration"] == "reset"
     assert refused.json()["detail"]["message"] == "請重設密碼。 Reset your password."
 
     # The raw legacy password in the ordinary password field must not get around the deadline.
-    raw = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": "correct horse"})
+    raw = await client.post("/auth/login", json={"email": "rick@example.com", "password": "correct horse"})
     assert raw.status_code == 401
     # The raw password proves the legacy hash, so only now may the answer say to reset.
-    probe = await client.post("/auth/login/migration", json={"email": "rick@saturn.ai", "password": "correct horse"})
+    probe = await client.post("/auth/login/migration", json={"email": "rick@example.com", "password": "correct horse"})
     assert probe.status_code == 200
     assert probe.json() == {"migration": "reset"}
     # Without that proof the answer is the one any address gets after the deadline.
-    unproven = await client.post("/auth/login/migration", json={"email": "rick@saturn.ai", "password": "v2." + ("ab" * 32)})
+    unproven = await client.post("/auth/login/migration", json={"email": "rick@example.com", "password": "v2." + ("ab" * 32)})
     assert unproven.json() == {"migration": None}
 
 
@@ -106,7 +106,7 @@ async def test_migration_probe_is_limited_per_account(client):
         response = await client.post(
             "/auth/login/migration",
             headers={"X-Forwarded-For": "10.2.0.1"},
-            json={"email": "rick@saturn.ai", "password": f"guess-{n}"},
+            json={"email": "rick@example.com", "password": f"guess-{n}"},
         )
         statuses.append(response.status_code)
     assert statuses[:10] == [200] * 10
@@ -115,7 +115,7 @@ async def test_migration_probe_is_limited_per_account(client):
     other = await client.post(
         "/auth/login/migration",
         headers={"X-Forwarded-For": "10.2.0.2"},
-        json={"email": "rick@saturn.ai", "password": "guess"},
+        json={"email": "rick@example.com", "password": "guess"},
     )
     assert other.status_code == 200
 
@@ -140,22 +140,22 @@ async def test_legacy_password_is_rewritten_as_argon2id(client, legacy_window):
         await session_gen.aclose()
 
     verifier = "v2." + ("ab" * 32)
-    legacy_v1 = "v1." + hashlib.sha256(b"saturn-login-v1\ncorrect horse").hexdigest()
-    first = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": verifier})
+    legacy_v1 = "v1." + hashlib.sha256(b"eisoptric-login-v1\ncorrect horse").hexdigest()
+    first = await client.post("/auth/login", json={"email": "rick@example.com", "password": verifier})
     assert first.status_code == 401
     assert first.json()["detail"]["migration"] == "v1"
     hinted = await client.post(
         "/auth/login",
-        json={"email": "rick@saturn.ai", "password": verifier, "legacy_v1": legacy_v1},
+        json={"email": "rick@example.com", "password": verifier, "legacy_v1": legacy_v1},
     )
     assert hinted.status_code == 401
     assert hinted.json()["detail"]["migration"] == "password"
     second = await client.post(
         "/auth/login",
-        json={"email": "rick@saturn.ai", "password": verifier, "legacy_password": "correct horse"},
+        json={"email": "rick@example.com", "password": verifier, "legacy_password": "correct horse"},
     )
     assert second.status_code == 200, second.text
-    again = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": verifier})
+    again = await client.post("/auth/login", json={"email": "rick@example.com", "password": verifier})
     assert again.status_code == 200, again.text
 
     session_gen = app.dependency_overrides[get_session]()
@@ -176,7 +176,7 @@ async def test_v1_verifier_migrates_without_the_raw_password(client, legacy_wind
     from app.main import app
     from app.models import User
 
-    material = hashlib.sha256(b"saturn-login-v1\ncorrect horse").hexdigest()
+    material = hashlib.sha256(b"eisoptric-login-v1\ncorrect horse").hexdigest()
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", material.encode(), bytes.fromhex(salt), 210_000)
     session_gen = app.dependency_overrides[get_session]()
@@ -190,22 +190,22 @@ async def test_v1_verifier_migrates_without_the_raw_password(client, legacy_wind
 
     verifier = "v2." + ("cd" * 32)
     legacy_v1 = "v1." + material
-    first = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": verifier})
+    first = await client.post("/auth/login", json={"email": "rick@example.com", "password": verifier})
     assert first.status_code == 401
     assert first.json()["detail"]["migration"] == "v1"
     second = await client.post(
         "/auth/login",
-        json={"email": "rick@saturn.ai", "password": verifier, "legacy_v1": legacy_v1},
+        json={"email": "rick@example.com", "password": verifier, "legacy_v1": legacy_v1},
     )
     assert second.status_code == 200, second.text
-    again = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": verifier})
+    again = await client.post("/auth/login", json={"email": "rick@example.com", "password": verifier})
     assert again.status_code == 200, again.text
 
 
 async def test_login_rejects_bad_password(client):
     response = await client.post(
         "/auth/login",
-        json={"email": "rick@saturn.ai", "password": "wrong"},
+        json={"email": "rick@example.com", "password": "wrong"},
     )
     assert response.status_code == 401
 

@@ -1,9 +1,9 @@
 async def test_me_includes_enterprise_employee_agents_and_mcp(client):
     me = (await client.get("/auth/me")).json()
     assert me["id"] == "user_operator"
-    assert me["profile_id"] == "org_saturn:user_operator"
-    assert me["organization"]["id"] == "org_saturn"
-    assert me["enterprise"]["id"] == "org_saturn"
+    assert me["profile_id"] == "org_default:user_operator"
+    assert me["organization"]["id"] == "org_default"
+    assert me["enterprise"]["id"] == "org_default"
     assert me["enterprise"]["name"] == me["organization"]["name"]
     assert me["employee"]["id"] == "emp_operator"
     assert me["employee"]["title"] == "Operator"
@@ -18,7 +18,7 @@ async def test_me_includes_enterprise_employee_agents_and_mcp(client):
     assert me["mcp_gateway"]["status"] == "connected"
     assert me["mcp_gateway"]["connected"] == 3
     assert me["mcp_gateway"]["total"] == 3
-    assert any(user["email"] == "rick@saturn.ai" for user in me["users"])
+    assert any(user["email"] == "rick@example.com" for user in me["users"])
 
 
 async def test_catalog_is_scoped_to_org(client):
@@ -43,9 +43,9 @@ async def test_catalog_is_scoped_to_org(client):
     org = (await client.get("/org")).json()
     assert {agent["id"] for agent in org["agents"]} >= {"agent_customer_ops"}
     assert {server["id"] for server in org["mcp_servers"]} == {"mcp_billing", "mcp_crm", "mcp_email"}
-    assert any(user["email"] == "rick@saturn.ai" for user in org["users"])
+    assert any(user["email"] == "rick@example.com" for user in org["users"])
     users = (await client.get("/org/users")).json()
-    assert any(user["email"] == "rick@saturn.ai" for user in users)
+    assert any(user["email"] == "rick@example.com" for user in users)
 
 
 async def test_unmapped_agent_cannot_run(client):

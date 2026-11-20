@@ -11,8 +11,8 @@ from app.core.logs import JsonFormatter, RequestLogMiddleware, configure_logging
 
 @pytest.fixture
 def request_lines(caplog):
-    caplog.set_level(logging.INFO, logger="saturn.request")
-    return lambda: [record for record in caplog.records if record.name == "saturn.request"]
+    caplog.set_level(logging.INFO, logger="gateway.request")
+    return lambda: [record for record in caplog.records if record.name == "gateway.request"]
 
 
 async def test_every_response_names_its_request(client, request_lines):
@@ -67,21 +67,21 @@ async def test_an_unhandled_error_is_logged_with_its_request_id(caplog):
     assert body["detail"] == "Internal server error" and "cause" not in response.text
     assert body["request_id"] == response.headers["x-request-id"]
     assert response.headers["x-content-type-options"] == "nosniff"
-    failure = next(record for record in caplog.records if record.name == "saturn.error")
+    failure = next(record for record in caplog.records if record.name == "gateway.error")
     assert failure.exc_info is not None and "RuntimeError" in str(failure.exc_info[0])
 
 
 def test_json_lines_carry_severity_request_id_and_extras():
     token = request_id_var.set("abc123")
     try:
-        record = logging.LogRecord("saturn.test", logging.WARNING, __file__, 1, "slow %s", ("query",), None)
+        record = logging.LogRecord("gateway.test", logging.WARNING, __file__, 1, "slow %s", ("query",), None)
         record.duration_ms = 12.5
         entry = json.loads(JsonFormatter().format(record))
     finally:
         request_id_var.reset(token)
     assert entry["severity"] == "WARNING" and entry["message"] == "slow query"
     assert entry["request_id"] == "abc123" and entry["duration_ms"] == 12.5
-    assert entry["logger"] == "saturn.test" and entry["time"].endswith("+00:00")
+    assert entry["logger"] == "gateway.test" and entry["time"].endswith("+00:00")
 
 
 def test_logging_is_json_on_cloud_run_and_text_elsewhere(monkeypatch):
@@ -91,11 +91,11 @@ def test_logging_is_json_on_cloud_run_and_text_elsewhere(monkeypatch):
         monkeypatch.delenv("K_SERVICE", raising=False)
         monkeypatch.delenv("LOG_FORMAT", raising=False)
         configure_logging()
-        ours = [handler for handler in root.handlers if getattr(handler, "_saturn", False)]
+        ours = [handler for handler in root.handlers if getattr(handler, "_gateway", False)]
         assert len(ours) == 1 and isinstance(ours[0].formatter, logs.TextFormatter)
-        monkeypatch.setenv("K_SERVICE", "saturn-backend")
+        monkeypatch.setenv("K_SERVICE", "gateway-backend")
         configure_logging()
-        ours = [handler for handler in root.handlers if getattr(handler, "_saturn", False)]
+        ours = [handler for handler in root.handlers if getattr(handler, "_gateway", False)]
         # Calling it again replaces the handler instead of adding a second one.
         assert len(ours) == 1 and isinstance(ours[0].formatter, JsonFormatter)
         assert logging.getLogger("uvicorn.access").propagate is False

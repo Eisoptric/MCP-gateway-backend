@@ -73,12 +73,12 @@ async def _claim_step(secret_b32: str, step: int) -> bool:
     if _use_redis():
         try:
             client = _redis_client()
-            prev = await client.get(f"saturn:totp:last:{fp}")
+            prev = await client.get(f"gateway:totp:last:{fp}")
             if prev is not None and step <= int(prev):
                 return False
-            if not await client.set(f"saturn:totp:used:{fp}:{step}", "1", nx=True, ex=_WINDOW_SECONDS):
+            if not await client.set(f"gateway:totp:used:{fp}:{step}", "1", nx=True, ex=_WINDOW_SECONDS):
                 return False
-            await client.set(f"saturn:totp:last:{fp}", str(step), ex=_WINDOW_SECONDS)
+            await client.set(f"gateway:totp:last:{fp}", str(step), ex=_WINDOW_SECONDS)
         except Exception:
             return False
     _used_steps[fp] = step
@@ -99,7 +99,7 @@ async def verify_code(
 
 
 def hash_backup_code(code: str) -> str:
-    return hashlib.sha256(f"saturn-totp-backup-v1\n{code}".encode()).hexdigest()
+    return hashlib.sha256(f"eisoptric-totp-backup-v1\n{code}".encode()).hexdigest()
 
 
 def _decode(secret_b32: str) -> bytes:
@@ -109,10 +109,10 @@ def _decode(secret_b32: str) -> bytes:
 
 
 def _otpauth(email: str, secret_b32: str) -> str:
-    label = quote(f"Saturn:{email}")
+    label = quote(f"Eisoptric:{email}")
     return (
         f"otpauth://totp/{label}?secret={secret_b32}"
-        "&issuer=Saturn&algorithm=SHA1&digits=6&period=30"
+        "&issuer=Eisoptric&algorithm=SHA1&digits=6&period=30"
     )
 
 

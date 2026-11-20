@@ -30,7 +30,7 @@ async def test_org_secrets_stay_on_the_server(client):
     invited = await client.post(
         "/org/invites",
         json={
-            "email": "viewer@saturn.ai",
+            "email": "viewer@example.com",
             "name": "Viewer",
             "role": "viewer",
             "agent_ids": ["agent_customer_ops"],

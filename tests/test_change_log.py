@@ -80,7 +80,7 @@ async def test_tool_set_and_assignment_changes_are_recorded(client):
 
 
 async def test_member_and_removal_changes_are_recorded_and_only_team_readers_see_them(client):
-    invited = await client.post("/org/invites", json={"email": "new@saturn.ai", "name": "New", "role": "operator"})
+    invited = await client.post("/org/invites", json={"email": "new@example.com", "name": "New", "role": "operator"})
     assert invited.status_code == 201, invited.text
     accepted = await client.post("/auth/accept-invite", json={"token": invited.json()["token"], "password": "password1"})
     assert accepted.status_code == 200, accepted.text
@@ -94,7 +94,7 @@ async def test_member_and_removal_changes_are_recorded_and_only_team_readers_see
     assert (await client.delete("/mcp-servers/mcp_email")).status_code == 204
 
     rows = await _changes(client)
-    assert _named(rows, "member_invited")[0]["payload"]["email"] == "new@saturn.ai"
+    assert _named(rows, "member_invited")[0]["payload"]["email"] == "new@example.com"
     updated = _named(rows, "member_updated")
     assert len(updated) == 1
     assert updated[0]["payload"]["previous"]["role"] == "operator" and updated[0]["payload"]["role"] == "viewer"

@@ -62,8 +62,8 @@ def _mcp(row_id: str, at, **extra) -> dict:
         "id": row_id,
         "event": "tool_requested",
         "created_at": at,
-        "source": "saturn_mcp",
-        "payload": {"source": "saturn_mcp"},
+        "source": "gateway_mcp",
+        "payload": {"source": "gateway_mcp"},
         **extra,
     }
 
@@ -107,7 +107,7 @@ async def test_the_source_filter_reads_the_column_not_the_payload(client):
         client,
         [
             _mcp("evt_column_only", at, payload={}),
-            {"id": "evt_payload_only", "event": "tool_requested", "created_at": at, "payload": {"source": "saturn_mcp"}},
+            {"id": "evt_payload_only", "event": "tool_requested", "created_at": at, "payload": {"source": "gateway_mcp"}},
             _mcp("evt_console", at, source="console", payload={"source": "console"}),
         ],
     )
@@ -135,11 +135,11 @@ async def test_new_audit_rows_carry_their_source(client):
     try:
         org = await _org_id(client)
         made = await audit_service.log(
-            session, event=AuditEvent.TOOL_REQUESTED, actor_type=ActorType.AGENT, organization_id=org, payload={"source": "saturn_mcp"}
+            session, event=AuditEvent.TOOL_REQUESTED, actor_type=ActorType.AGENT, organization_id=org, payload={"source": "gateway_mcp"}
         )
         plain = await audit_service.log(session, event=AuditEvent.TOOL_REQUESTED, actor_type=ActorType.AGENT, organization_id=org)
         await session.commit()
-        assert made.source == "saturn_mcp" and made.payload["source"] == "saturn_mcp"
+        assert made.source == "gateway_mcp" and made.payload["source"] == "gateway_mcp"
         assert plain.source is None
     finally:
         await generator.aclose()
@@ -243,14 +243,14 @@ def test_migration_backfills_the_column_in_batches_and_reverses(tmp_path):
             )
         )
         rows = [
-            {"id": "evt_a", "payload": json.dumps({"source": "saturn_mcp"})},
+            {"id": "evt_a", "payload": json.dumps({"source": "gateway_mcp"})},
             {"id": "evt_b", "payload": json.dumps({"source": "console", "x": 1})},
             {"id": "evt_c", "payload": json.dumps({"other": True})},
             {"id": "evt_d", "payload": None},
             {"id": "evt_e", "payload": json.dumps(["not", "an", "object"])},
             {"id": "evt_f", "payload": json.dumps({"source": ""})},
             {"id": "evt_g", "payload": json.dumps({"source": "s" * 80})},
-        ] + [{"id": f"evt_z{index:03d}", "payload": json.dumps({"source": "saturn_mcp"})} for index in range(23)]
+        ] + [{"id": f"evt_z{index:03d}", "payload": json.dumps({"source": "gateway_mcp"})} for index in range(23)]
         connection.execute(
             sa.text("INSERT INTO audit_logs (id, organization_id, created_at, payload) VALUES (:id, 'org', '2026-01-01', :payload)"),
             rows,
@@ -263,12 +263,12 @@ def test_migration_backfills_the_column_in_batches_and_reverses(tmp_path):
     with engine.connect() as connection:
         sources = dict(connection.execute(sa.text("SELECT id, source FROM audit_logs")).all())
         indexes = {index["name"] for index in sa.inspect(connection).get_indexes("audit_logs")}
-    assert sources["evt_a"] == "saturn_mcp"
+    assert sources["evt_a"] == "gateway_mcp"
     assert sources["evt_b"] == "console"
     assert sources["evt_c"] is None and sources["evt_d"] is None and sources["evt_e"] is None
     assert sources["evt_f"] is None
     assert sources["evt_g"] == "s" * 64
-    assert all(sources[f"evt_z{index:03d}"] == "saturn_mcp" for index in range(23))
+    assert all(sources[f"evt_z{index:03d}"] == "gateway_mcp" for index in range(23))
     assert "ix_audit_logs_org_source_created" in indexes
 
     _run(engine, migration.downgrade)

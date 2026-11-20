@@ -23,10 +23,10 @@ settings = get_settings()
 PBKDF2_ROUNDS = 210_000
 RECENT_AUTH = timedelta(minutes=10)
 _LOGIN_PREFIX = "v1."
-_LOGIN_LABEL = b"saturn-login-v1\n"
+_LOGIN_LABEL = b"eisoptric-login-v1\n"
 _hasher = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1, hash_len=32, salt_len=16)
 # Verified against when the email is unknown, so a missing account costs the same time as a wrong password.
-_DUMMY_HASH = _hasher.hash("saturn-missing-account")
+_DUMMY_HASH = _hasher.hash("gateway-missing-account")
 OAUTH_SESSION_TTL = timedelta(minutes=15)
 # A console session ends after this long without a request, even before its fixed expiry.
 IDLE_TIMEOUT = timedelta(hours=24)

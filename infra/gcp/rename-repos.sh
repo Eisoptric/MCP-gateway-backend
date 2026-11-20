@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Moves the Workload Identity bindings from the old repository names (Backend, Frontend) to the
-# renamed ones (Saturn-MCP-Backend, Saturn-MCP-Frontend).
+# renamed ones (MCP-gateway-backend, MCP-gateway-frontend).
 #
 # GitHub's OIDC token carries the repository's current name in `repository`, and each deployer
 # trusts `attribute.repository/ORG/NAME`. After a rename, a deploy gets no Google token until the
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 : "${GCP_PROJECT_ID:?GCP_PROJECT_ID is required}"
-GITHUB_ORG="${GITHUB_ORG:-Saturn-Technology-Project}"
+GITHUB_ORG="${GITHUB_ORG:-eisoptric}"
 POOL="${WIF_POOL:-github}"
 REMOVE_OLD="${REMOVE_OLD:-false}"
 # Set PROJECT_NUMBER to skip the lookup, for an identity without resourcemanager.projects.get.
@@ -26,9 +26,9 @@ PROJECT_NUMBER="${PROJECT_NUMBER:-$(gcloud projects describe "${GCP_PROJECT_ID}"
 
 # service account : old repository name : new repository name
 MOVES=(
-  "github-deployer-backend:Backend:Saturn-MCP-Backend"
-  "github-provisioner:Backend:Saturn-MCP-Backend"
-  "github-deployer-frontend:Frontend:Saturn-MCP-Frontend"
+  "github-deployer-backend:Backend:MCP-gateway-backend"
+  "github-provisioner:Backend:MCP-gateway-backend"
+  "github-deployer-frontend:Frontend:MCP-gateway-frontend"
 )
 
 email() { echo "$1@${GCP_PROJECT_ID}.iam.gserviceaccount.com"; }
@@ -78,8 +78,8 @@ done
 if [[ "${REMOVE_OLD}" != "true" ]]; then
   cat <<EOF
 
-Done. The old names are still trusted. Deploy ${GITHUB_ORG}/Saturn-MCP-Backend and
-${GITHUB_ORG}/Saturn-MCP-Frontend from main (Actions, "Deploy ... to Cloud Run", Run workflow),
+Done. The old names are still trusted. Deploy ${GITHUB_ORG}/MCP-gateway-backend and
+${GITHUB_ORG}/MCP-gateway-frontend from main (Actions, "Deploy ... to Cloud Run", Run workflow),
 check that both serve, then remove the old bindings:
 
   REMOVE_OLD=true GCP_PROJECT_ID=${GCP_PROJECT_ID} bash infra/gcp/rename-repos.sh

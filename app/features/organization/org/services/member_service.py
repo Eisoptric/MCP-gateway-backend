@@ -213,7 +213,7 @@ class MemberService:
         if user is not None and user.organization_id == organization_id:
             raise HTTPException(status.HTTP_409_CONFLICT, INVITE_CONFLICT)
         # An address that belongs to another organization gets the same response as a new one,
-        # so invites cannot be used to learn which emails have Saturn accounts elsewhere. Such an
+        # so invites cannot be used to learn which emails have Eisoptric accounts elsewhere. Such an
         # invite cannot be accepted (accept_invite refuses existing users) and no email is sent.
         deliverable = user is None
 

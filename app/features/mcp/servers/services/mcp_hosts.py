@@ -1,4 +1,4 @@
-"""Hosts an organization's admins approve for MCP servers, beside Saturn's own list.
+"""Hosts an organization's admins approve for MCP servers, beside Eisoptric's own list.
 
 Approving a host only lets its name through. Each request to it still has to pass every check in
 mcp_endpoint.py: HTTPS on port 443, no credentials in the URL, and only public addresses, resolved
@@ -21,7 +21,7 @@ from app.core.ids import new_id
 from app.features.mcp.servers.models.mcp_allowed_host import McpAllowedHost
 from app.features.mcp.servers.services import mcp_endpoint
 
-# Enough for any real organization, and it bounds the work an admin can make Saturn do.
+# Enough for any real organization, and it bounds the work an admin can make Eisoptric do.
 MAX_HOSTS = 50
 
 _LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -116,7 +116,7 @@ async def list_hosts(session: AsyncSession, organization_id: str) -> list[McpAll
 async def add_host(session: AsyncSession, organization_id: str, user_id: str, value: str) -> McpAllowedHost:
     host = normalize_host(value)
     if host in mcp_endpoint.ALLOWED_MCP_HOSTS:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Saturn already approves this host")
+        raise HTTPException(status.HTTP_409_CONFLICT, "Eisoptric already approves this host")
     existing = await session.scalar(
         select(McpAllowedHost).where(
             McpAllowedHost.organization_id == organization_id, McpAllowedHost.host == host

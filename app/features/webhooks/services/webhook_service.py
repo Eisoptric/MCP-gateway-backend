@@ -389,7 +389,7 @@ async def send_test(session: AsyncSession, organization_id: str, endpoint_id: st
         "id": event_id,
         "type": "webhook.test",
         "created_at": _iso(utcnow()),
-        "data": {"note": "Saturn webhook test"},
+        "data": {"note": "Eisoptric webhook test"},
     }
     row = WebhookDelivery(
         id=new_id("whd"),

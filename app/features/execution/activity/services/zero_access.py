@@ -53,15 +53,15 @@ CLIENT_BACKUP_KDF = "CLIENT-SECRET"
 # Envelope integrity for new envelopes: a MAC keyed by the DEK replaces the plaintext content_sha256,
 # and key_check commits to a DEK proof so only DEK holders can add recipient wraps or rewrap.
 ENVELOPE_INTEGRITY = "dek-hkdf-hmac-sha256-v1"
-_CONTENT_MAC_INFO = b"saturn-payload-content-mac-v1"
-_DEK_PROOF_INFO = b"saturn-payload-dek-proof-v1"
-_KEY_CHECK_PREFIX = b"saturn-payload-key-check-v1\n"
+_CONTENT_MAC_INFO = b"eisoptric-payload-content-mac-v1"
+_DEK_PROOF_INFO = b"eisoptric-payload-dek-proof-v1"
+_KEY_CHECK_PREFIX = b"eisoptric-payload-key-check-v1\n"
 PUBLIC_KEY_BYTES = 1568
 PRIVATE_KEY_BYTES = 64  # FIPS 203 seed. The browser expands this into the decapsulation key.
 KEM_CIPHERTEXT_BYTES = 1568
 _WRAP_VERSION = 2
-_WRAP_INFO = b"saturn-payload-mlkem1024-v1"
-_RECOVERY_INFO = b"saturn-recovery-v1"
+_WRAP_INFO = b"eisoptric-payload-mlkem1024-v1"
+_RECOVERY_INFO = b"eisoptric-recovery-v1"
 CONTENT_KEYS = ("arguments", "raw_request", "raw_response", "server_result", "agent_result")
 
 
@@ -315,7 +315,7 @@ def member_wrap_aad(organization_id: str, user_id: str, key_version: int) -> byt
 # receives in plaintext at /auth/login, so a compromised server could rebuild it. New consoles
 # send a CLIENT-SECRET backup instead; these helpers stay so old backups can still be opened.
 def _member_wrap_material(password: str) -> bytes:
-    return hashlib.sha256(b"saturn-member-wrap-v1\n" + password.encode()).digest()
+    return hashlib.sha256(b"eisoptric-member-wrap-v1\n" + password.encode()).digest()
 
 
 def password_backup(password: str, user_id: str, private_key: bytes) -> dict[str, str | int]:

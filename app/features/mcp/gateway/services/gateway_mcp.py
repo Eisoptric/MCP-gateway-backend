@@ -16,7 +16,7 @@ from app.features.execution.activity.services.audit_service import audit_service
 from app.features.execution.activity.services.zero_access import PAYLOAD_ENCRYPTION, action_digest, is_zero_access
 from app.features.execution.activity.services.content_seal import policy_fields
 from app.features.execution.approvals.services.approval_arguments import digest_matches, open_result, server_sealed
-from app.features.mcp.saturn.services.mcp_sessions import mcp_sessions
+from app.features.mcp.gateway.services.mcp_sessions import mcp_sessions
 from app.features.mcp.servers.services.mcp_remote import call_remote_tool, split_reply
 from app.features.policy.policies.services.policy_engine import policy_engine
 
@@ -25,7 +25,7 @@ def rpc_result(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
-SATURN_RUN_ARGUMENT = "saturnRunId"
+GATEWAY_RUN_ARGUMENT = "gatewayRunId"
 
 
 def _with_run_argument(schema: dict[str, Any] | None) -> dict[str, Any]:
@@ -34,13 +34,13 @@ def _with_run_argument(schema: dict[str, Any] | None) -> dict[str, Any]:
         return base
     properties = dict(base.get("properties") or {})
     properties.setdefault(
-        SATURN_RUN_ARGUMENT,
+        GATEWAY_RUN_ARGUMENT,
         {
             "type": "string",
             "description": (
-                "Leave this out on the first call. If Saturn returns approval_required, wait for approval, "
-                "then call this same tool again with the same arguments and set saturnRunId to the value in that error. "
-                "If Saturn returns approval_rejected for that id, leave saturnRunId out to start a separate request."
+                "Leave this out on the first call. If Eisoptric returns approval_required, wait for approval, "
+                "then call this same tool again with the same arguments and set gatewayRunId to the value in that error. "
+                "If Eisoptric returns approval_rejected for that id, leave gatewayRunId out to start a separate request."
             ),
         },
     )
@@ -51,7 +51,7 @@ def _with_run_argument(schema: dict[str, Any] | None) -> dict[str, Any]:
 
 def _take_run_argument(arguments: dict[str, Any]) -> tuple[dict[str, Any], str]:
     clean = dict(arguments)
-    raw = clean.pop(SATURN_RUN_ARGUMENT, None)
+    raw = clean.pop(GATEWAY_RUN_ARGUMENT, None)
     return clean, raw.strip() if isinstance(raw, str) else ""
 
 
@@ -73,31 +73,31 @@ def _approval_notice(
         "action_id": approval.action_id,
         "tool": tool_name,
         "status": status,
-        "saturnRunId": approval.run_id,
-        "argument": SATURN_RUN_ARGUMENT,
+        "gatewayRunId": approval.run_id,
+        "argument": GATEWAY_RUN_ARGUMENT,
     }
     if reason:
         data["reason"] = reason
     if phase:
         data["phase"] = phase
     if status == "pending":
-        from app.features.mcp.saturn.services.agent_messages import pending_fields
+        from app.features.mcp.gateway.services.agent_messages import pending_fields
 
         data.update(pending_fields(message, approval.id, policy_id))
     return rpc_error(request_id, code, message, data)
 
 
 def _approval_required_message(tool_name: str, run_id: str) -> str:
-    from app.features.mcp.saturn.services.agent_messages import approval_pending
+    from app.features.mcp.gateway.services.agent_messages import approval_pending
 
     return approval_pending(tool_name, run_id)
 
 
 def _approval_rejected_message(run_id: str) -> str:
     return (
-        f'approval_rejected. A person rejected saturnRunId "{run_id}". '
-        "Do not call this tool again with that saturnRunId. "
-        "To ask again, call it once more and leave saturnRunId out."
+        f'approval_rejected. A person rejected gatewayRunId "{run_id}". '
+        "Do not call this tool again with that gatewayRunId. "
+        "To ask again, call it once more and leave gatewayRunId out."
     )
 
 
@@ -105,13 +105,13 @@ def _approval_expired(request_id: Any, approval: Approval, phase: str, tool_name
     phase = phase or "pending"
     if phase == "resubmit":
         message = (
-            f'approval_expired. The resubmit window for saturnRunId "{approval.run_id}" has passed. '
-            "Leave saturnRunId out to start a separate request."
+            f'approval_expired. The resubmit window for gatewayRunId "{approval.run_id}" has passed. '
+            "Leave gatewayRunId out to start a separate request."
         )
     else:
         message = (
-            f'approval_expired. saturnRunId "{approval.run_id}" expired before anyone approved it. '
-            "Leave saturnRunId out to start a separate request."
+            f'approval_expired. gatewayRunId "{approval.run_id}" expired before anyone approved it. '
+            "Leave gatewayRunId out to start a separate request."
         )
     return _approval_notice(
         request_id,
@@ -136,8 +136,8 @@ def _unknown_run(request_id: Any) -> dict[str, Any]:
     return rpc_error(
         request_id,
         -32000,
-        "unknown_run. This saturnRunId was not issued to this agent. Leave saturnRunId out to start a separate request.",
-        {"argument": SATURN_RUN_ARGUMENT, "reason": "UNKNOWN_RUN"},
+        "unknown_run. This gatewayRunId was not issued to this agent. Leave gatewayRunId out to start a separate request.",
+        {"argument": GATEWAY_RUN_ARGUMENT, "reason": "UNKNOWN_RUN"},
     )
 
 
@@ -156,7 +156,7 @@ def _same_arguments(organization_id: str, action: Action, approval: Approval, ar
         return False
 
 
-# Agent-created Saturn MCP agents. One OAuth client can name several products, but not without bound.
+# Agent-created MCP Gateway agents. One OAuth client can name several products, but not without bound.
 MAX_AGENTS_PER_CLIENT = 5
 MAX_AGENTS_PER_USER = 25
 
@@ -173,7 +173,7 @@ _STARTED_REPLY = {
 }
 LAST_SEEN_EVERY_SECONDS = 30
 
-class SaturnMcp:
+class GatewayMcp:
     async def handle(
         self,
         session: AsyncSession,
@@ -208,7 +208,7 @@ class SaturnMcp:
             if refused:
                 return rpc_error(request_id, -32000, refused, {"reason": "AGENT_LIMIT"})
             agent = await self._client_for_call(session, user, "", profile_id, client_name, client_id)
-        if agent is not None and str((agent.settings or {}).get("origin") or "") == "saturn_mcp":
+        if agent is not None and str((agent.settings or {}).get("origin") or "") == "gateway_mcp":
             # "Connected" in the console means seen in the last two minutes, so one write every
             # half minute is enough. Writing on every call made each call update the agent row.
             now = utcnow()
@@ -230,7 +230,7 @@ class SaturnMcp:
                 {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {"listChanged": True}},
-                    "serverInfo": {"name": "Saturn MCP", "version": "0.1.0"},
+                    "serverInfo": {"name": "MCP Gateway", "version": "0.1.0"},
                 },
             )
         if method in {"notifications/initialized", "ping"}:
@@ -285,7 +285,7 @@ class SaturnMcp:
             return False
         settings = agent.settings or {}
         return (
-            settings.get("origin") == "saturn_mcp"
+            settings.get("origin") == "gateway_mcp"
             and settings.get("registered_user_id") == user.id
             and settings.get("client_id") == client_id
         )
@@ -343,7 +343,7 @@ class SaturnMcp:
             return ""
         if current_user and current_user != user.id:
             return ""
-        settings["origin"] = "saturn_mcp"
+        settings["origin"] = "gateway_mcp"
         settings["profile_id"] = current_profile or profile_id
         settings["registered_user_id"] = user.id
         settings["client_id"] = client_id
@@ -435,11 +435,11 @@ class SaturnMcp:
         mine = [
             agent
             for agent in result.scalars().all()
-            if (agent.settings or {}).get("origin") == "saturn_mcp"
+            if (agent.settings or {}).get("origin") == "gateway_mcp"
             and (agent.settings or {}).get("registered_user_id") == user.id
         ]
         if len(mine) >= MAX_AGENTS_PER_USER:
-            return "agent_limit. This account already has the maximum number of connected agents. Remove one in Saturn first."
+            return "agent_limit. This account already has the maximum number of connected agents. Remove one in Eisoptric first."
         from_client = [
             agent
             for agent in mine
@@ -481,7 +481,7 @@ class SaturnMcp:
         if agent is None or agent.organization_id != user.organization_id:
             return False
         settings = agent.settings or {}
-        if settings.get("origin") != "saturn_mcp":
+        if settings.get("origin") != "gateway_mcp":
             return False
         if settings.get("registered_user_id") != user.id:
             return False
@@ -513,7 +513,7 @@ class SaturnMcp:
         matched: list[Agent] = []
         for agent in result.scalars().all():
             settings = agent.settings or {}
-            if settings.get("origin") == "saturn_mcp" and settings.get("profile_id") == profile_id:
+            if settings.get("origin") == "gateway_mcp" and settings.get("profile_id") == profile_id:
                 matched.append(agent)
         return matched
 
@@ -612,7 +612,7 @@ class SaturnMcp:
 
     async def _audit(self, session: AsyncSession, **kwargs: Any) -> None:
         payload = kwargs.get("payload") if isinstance(kwargs.get("payload"), dict) else {}
-        kwargs["payload"] = {**payload, "source": "saturn_mcp"}
+        kwargs["payload"] = {**payload, "source": "gateway_mcp"}
         await audit_service.log(session, **kwargs)
 
     async def _call(
@@ -699,7 +699,7 @@ class SaturnMcp:
             },
         )
         if decision.decision == PolicyDecision.DENY:
-            from app.features.mcp.saturn.services.agent_messages import deny_error
+            from app.features.mcp.gateway.services.agent_messages import deny_error
 
             return deny_error(request_id, reason=decision.reason, policy_id=decision.policy_id)
         if decision.decision == PolicyDecision.APPROVAL_REQUIRED or item.approval:
@@ -738,7 +738,7 @@ class SaturnMcp:
             raise
         raw_response, result = split_reply(raw_response)
         reply = rpc_result(request_id, result)
-        # saturnRunId is the only caller-supplied run id. Link the audit row when that run belongs to this agent.
+        # gatewayRunId is the only caller-supplied run id. Link the audit row when that run belongs to this agent.
         run = await session.get(Run, run_id) if run_id else None
         action = await session.get(Action, action_id) if action_id else None
         await self._audit(
@@ -830,7 +830,7 @@ class SaturnMcp:
             text = (
                 _approval_rejected_message(approval.run_id)
                 if approval.state is ApprovalStatus.REJECTED
-                else f"approval_{closed}. saturnRunId \"{approval.run_id}\" is closed. Leave saturnRunId out to start a separate request."
+                else f"approval_{closed}. gatewayRunId \"{approval.run_id}\" is closed. Leave gatewayRunId out to start a separate request."
             )
             return _approval_notice(request_id, -32002, text, approval, tool.name, status=closed)
         return None
@@ -850,7 +850,7 @@ class SaturnMcp:
     ) -> dict[str, Any]:
         """Approved: run it once. A call that already started is answered from what was recorded."""
         if not _same_arguments(agent.organization_id, action, approval, arguments):
-            from app.features.mcp.saturn.services.agent_messages import mismatch_error
+            from app.features.mcp.gateway.services.agent_messages import mismatch_error
 
             return mismatch_error(request_id, policy_id=policy_id)
         if approval.execution is ExecutionState.NONE:
@@ -883,7 +883,7 @@ class SaturnMcp:
         if approval.parameter_digest and not digest_matches(agent.organization_id, approval.parameter_digest, arguments):
             if await approval_lifecycle.move(session, approval, INVALIDATE[ApprovalStatus.PENDING], now=utcnow()):
                 action.status = ActionStatus.DENIED.value
-            from app.features.mcp.saturn.services.agent_messages import mismatch_error
+            from app.features.mcp.gateway.services.agent_messages import mismatch_error
 
             return mismatch_error(request_id, policy_id=policy_id)
         return _approval_notice(
@@ -922,7 +922,7 @@ class SaturnMcp:
                 f"too_many_pending_approvals: this agent already has {MAX_PENDING_APPROVALS_PER_AGENT} requests waiting for approval",
             )
 
-        # Run ids are always generated here. An agent-supplied saturnRunId only refers to a run it already owns.
+        # Run ids are always generated here. An agent-supplied gatewayRunId only refers to a run it already owns.
         if run_id:
             run = await session.get(Run, run_id)
             if run is None or run.organization_id != agent.organization_id or run.agent_id != agent.id:
@@ -962,7 +962,7 @@ class SaturnMcp:
                 policy_id=getattr(decision, "policy_id", None) if decision is not None else None,
                 policy_version=getattr(decision, "policy_version", None) if decision is not None else None,
                 policy_rule_id=getattr(decision, "matched_rule_id", None) if decision is not None else None,
-                policy_reason="saturn_mcp",
+                policy_reason="gateway_mcp",
                 status=ActionStatus.WAITING_APPROVAL.value,
             )
             session.add(action)
@@ -1053,7 +1053,7 @@ class SaturnMcp:
                     session,
                     event=AuditEvent.APPROVAL_INVALIDATED,
                     actor_type=ActorType.SYSTEM,
-                    actor_id="saturn",
+                    actor_id="gateway",
                     organization_id=agent.organization_id,
                     run_id=action.run_id,
                     action_id=action.id,
@@ -1061,7 +1061,7 @@ class SaturnMcp:
                     result="invalidated",
                     payload={"approval_id": approval.id, "reason": "policy denies on resubmit"},
                 )
-            from app.features.mcp.saturn.services.agent_messages import deny_error
+            from app.features.mcp.gateway.services.agent_messages import deny_error
 
             return deny_error(request_id, reason=fresh.reason, policy_id=fresh.policy_id)
         try:
@@ -1072,8 +1072,8 @@ class SaturnMcp:
             return _approval_notice(
                 request_id,
                 -32002,
-                f'approval_invalidated. saturnRunId "{approval.run_id}" is closed because the policy changed. '
-                "Leave saturnRunId out to start a separate request.",
+                f'approval_invalidated. gatewayRunId "{approval.run_id}" is closed because the policy changed. '
+                "Leave gatewayRunId out to start a separate request.",
                 approval,
                 tool.name,
                 status=ApprovalStatus.INVALIDATED.value,
@@ -1158,4 +1158,4 @@ class SaturnMcp:
                 raise HTTPException(status.HTTP_502_BAD_GATEWAY, "MCP server returned HTTP 401") from exc
 
 
-saturn_mcp = SaturnMcp()
+gateway_mcp = GatewayMcp()

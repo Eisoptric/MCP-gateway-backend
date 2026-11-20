@@ -8,10 +8,10 @@ set -euo pipefail
 
 : "${GCP_PROJECT_ID:?GCP_PROJECT_ID is required}"
 REGION="${GCP_REGION:-asia-east1}"
-NEW="${REDIS_INSTANCE:-saturn-redis-tls}"
+NEW="${REDIS_INSTANCE:-gateway-redis-tls}"
 NETWORK="${VPC_NETWORK:-default}"
-RUNTIME_SA="${RUNTIME_SA:-saturn-runtime@${GCP_PROJECT_ID}.iam.gserviceaccount.com}"
-REPO="${GITHUB_REPO:-Saturn-Technology-Project/Saturn-MCP-Backend}"
+RUNTIME_SA="${RUNTIME_SA:-gateway-runtime@${GCP_PROJECT_ID}.iam.gserviceaccount.com}"
+REPO="${GITHUB_REPO:-eisoptric/MCP-gateway-backend}"
 
 if ! gcloud redis instances describe "${NEW}" --project "${GCP_PROJECT_ID}" --region "${REGION}" >/dev/null 2>&1; then
   echo "Creating ${NEW} (about 5 minutes)"
