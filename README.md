@@ -291,7 +291,7 @@ Settings come from the environment (or `.env`); see `.env.example`. App settings
 | `SEED_USER_NAME` | `Admin` | Its display name |
 | `SKIP_DB_BOOTSTRAP` | `false` | `true` skips seeding and the startup database work |
 | `SESSION_TTL_DAYS` | `7` | Session lifetime; a session also ends after 24 hours without a request |
-| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://console.eisoptric.com` | Allowed browser origins, also trusted for cookie requests and passkeys |
+| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://console.eisoptric.com,https://ops.eisoptric.com` | Allowed browser origins, also trusted for cookie requests and passkeys |
 | `IN_PROCESS_RUNTIME` | `false` | Local development and tests only: executes runs in process, keeps rate limits and MCP sessions in memory, returns invite tokens |
 | `POLICY_DEFAULT_DENY` | `true` | Deny a call when no policy applies |
 | `GATEWAY_EMBED_WORKER` | `true` | Run the approval-expiry and webhook worker in the API process |

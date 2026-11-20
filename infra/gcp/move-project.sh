@@ -19,7 +19,8 @@ GCP_PROJECT_ID="${NEW_PROJECT_ID}"
 GITHUB_ORG="${GITHUB_ORG:-Eisoptric}"
 BACKEND_REPO="${BACKEND_REPO:-MCP-gateway-backend}"
 FRONTEND_REPO="${FRONTEND_REPO:-MCP-gateway-frontend}"
-DASHBOARD_REPO="${DASHBOARD_REPO:-Dashboard}"
+# The operator console (ops.eisoptric.com). Its identities keep their dashboard names.
+DASHBOARD_REPO="${DASHBOARD_REPO:-MCP-gateway-ops}"
 REGION="${GCP_REGION:-asia-east1}"
 GAR_LOCATION="${GAR_LOCATION:-${REGION}}"
 GAR_REPOSITORY="${GAR_REPOSITORY:-gateway}"
@@ -330,7 +331,8 @@ sys.stdout.write(f"postgresql+asyncpg://gateway:{password}@/gateway?host=/clouds
   # the new project does not have.
   github_variable "${BACKEND_REPO}" BACKEND_CLOUD_RUN_SERVICE gateway-backend
   github_variable "${FRONTEND_REPO}" FRONTEND_CLOUD_RUN_SERVICE gateway-frontend
-  github_variable "${DASHBOARD_REPO}" DASHBOARD_CLOUD_RUN_SERVICE gateway-dashboard
+  github_variable "${DASHBOARD_REPO}" OPS_CLOUD_RUN_SERVICE gateway-ops
+  github_variable "${DASHBOARD_REPO}" BACKEND_PUBLIC_URL https://api.eisoptric.com
   github_variable "${BACKEND_REPO}" REDIS_URL_SECRET REDIS_URL
   github_variable "${BACKEND_REPO}" SERVERLESS_VPC_CONNECTOR_RANGE "${VPC_CONNECTOR_RANGE:-10.9.0.0/28}"
   if [[ "${GITHUB_SETUP}" == "true" ]]; then
@@ -350,8 +352,7 @@ sys.stdout.write(f"postgresql+asyncpg://gateway:{password}@/gateway?host=/clouds
 Done with setup. Next, in this order:
   1. Cloudflare: change the Transform Rule so X-Eisoptric-Origin-Auth carries the new
      ORIGIN_AUTH_SECRET (gcloud secrets versions access latest --secret ORIGIN_AUTH_SECRET --project ${GCP_PROJECT_ID}).
-  2. Deploy ${BACKEND_REPO} from main, then set ${DASHBOARD_REPO}'s BACKEND_PUBLIC_URL to the new
-     gateway-backend URL, then deploy ${FRONTEND_REPO} and ${DASHBOARD_REPO}.
+  2. Deploy ${BACKEND_REPO} from main, then ${FRONTEND_REPO} and ${DASHBOARD_REPO}.
   3. Point api.eisoptric.com and console.eisoptric.com at the new services, the way the old ones were.
   4. Sign in as ${SEED_USER_EMAIL}, then: GCP_PROJECT_ID=${GCP_PROJECT_ID} bash infra/gcp/move-project.sh after-first-deploy
 EOF
@@ -366,7 +367,7 @@ after_first_deploy() {
   narrow github-deployer-backend gateway-backend
   narrow github-deployer-backend gateway-worker
   narrow github-deployer-frontend gateway-frontend
-  narrow github-deployer-dashboard gateway-dashboard
+  narrow github-deployer-dashboard gateway-ops
   for name in github-deployer-backend github-deployer-frontend github-deployer-dashboard; do
     retry gcloud projects remove-iam-policy-binding "${GCP_PROJECT_ID}" \
       --member "serviceAccount:$(email "${name}")" --role roles/run.admin --condition None

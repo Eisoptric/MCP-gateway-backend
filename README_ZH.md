@@ -291,7 +291,7 @@ Agent 錢包與 x402 付款已經移除（遷移 `039_drop_wallets_x402`）。
 | `SEED_USER_NAME` | `Admin` | 它的顯示名稱 |
 | `SKIP_DB_BOOTSTRAP` | `false` | `true` 會略過初始資料與啟動時的資料庫工作 |
 | `SESSION_TTL_DAYS` | `7` | 工作階段的有效天數；24 小時沒有請求的工作階段也會結束 |
-| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://console.eisoptric.com` | 允許的瀏覽器來源，也是 cookie 請求與 passkey 信任的來源 |
+| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://console.eisoptric.com,https://ops.eisoptric.com` | 允許的瀏覽器來源，也是 cookie 請求與 passkey 信任的來源 |
 | `IN_PROCESS_RUNTIME` | `false` | 只用於本機開發與測試：在行程內執行 run，速率限制與 MCP 工作階段存在記憶體中，回傳邀請 token |
 | `POLICY_DEFAULT_DENY` | `true` | 沒有適用政策時拒絕呼叫 |
 | `GATEWAY_EMBED_WORKER` | `true` | 在 API 行程中執行核准到期與 Webhook 的 worker |
