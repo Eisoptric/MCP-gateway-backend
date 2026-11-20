@@ -4,7 +4,7 @@ Each Eisoptric app is a separate GitHub repo. Push `main` to deploy that service
 
 - Backend: Cloud Run (API `gateway-backend`, internal webhook worker `gateway-worker`) + Cloud SQL + Memorystore Redis
 - Frontend: Cloud Run
-- Dashboard: Cloud Run
+- Ops (operator console, repo `MCP-gateway-ops`): Cloud Run
 
 GitHub authenticates with Workload Identity Federation. No JSON key is stored in the repo.
 
@@ -62,7 +62,7 @@ Use one identity per job, each bound to one repo only:
 | `github-deployer-backend` | backend `deploy-cloud-run.yml` | `roles/run.developer` (project), `roles/run.admin` on the `gateway-backend` and `gateway-worker` services (lets the deploy set their invoker policy), `roles/vpcaccess.user` (project), `roles/artifactregistry.writer` on the `gateway` repository, `roles/iam.serviceAccountUser` on `gateway-runtime` only |
 | `github-provisioner` | backend `provision-gcp.yml` | `roles/cloudsql.admin`, `roles/redis.admin`, `roles/compute.networkAdmin`, `roles/vpcaccess.admin`, `roles/artifactregistry.admin`, `roles/serviceusage.serviceUsageAdmin` |
 | `gateway-runtime` | the API, the worker and the migration job at runtime | see [Runtime service account](#runtime-service-account) |
-| one deployer per other repo | `gateway-frontend`, `gateway-dashboard`, `acme-demo` (repo `demosystem`) | `roles/run.developer` plus `roles/run.admin` on its own service, `roles/artifactregistry.writer` on its registry, `roles/iam.serviceAccountUser` on its own runtime SA |
+| one deployer per other repo | `gateway-frontend`, `gateway-ops` (repo `MCP-gateway-ops`), `acme-demo` (repo `demosystem`) | `roles/run.developer` plus `roles/run.admin` on its own service, `roles/artifactregistry.writer` on its registry, `roles/iam.serviceAccountUser` on its own runtime SA |
 
 No identity holds `roles/iam.serviceAccountUser` on the whole project. That role on the project
 lets the holder deploy a service that runs as *any* service account. The frontend repos cannot
@@ -240,12 +240,12 @@ Nothing reads them; delete them. The same goes for `GATEWAY_KEM_SEED`, which the
 when tenant keys moved to Cloud KMS. Delete `GATEWAY_KEM_SEED` only after every stored value has been
 re-sealed under the KMS key.
 
-Frontend / Dashboard:
+Frontend / Ops:
 
 | Name | Type |
 |---|---|
 | `FRONTEND_CLOUD_RUN_SERVICE` | variable, e.g. `gateway-frontend` |
-| `DASHBOARD_CLOUD_RUN_SERVICE` | variable, e.g. `gateway-dashboard` |
+| `OPS_CLOUD_RUN_SERVICE` | variable, e.g. `gateway-ops` |
 
 The public API origin is `https://api.eisoptric.com`. The frontend bakes it into the `/gateway-api`
 HTTP rewrite, and the backend sets `PUBLIC_WS_URL` to it so MCP OAuth callbacks use
@@ -318,7 +318,7 @@ The services do not exist yet, so the deployers hold `roles/run.admin` on the pr
 first deploy. Then:
 
 1. Point the Cloudflare Transform Rule's `X-Eisoptric-Origin-Auth` at the new `ORIGIN_AUTH_SECRET`.
-2. Deploy Backend, then Frontend, then Dashboard, from `main`.
+2. Deploy Backend, then Frontend, then Ops, from `main`.
 3. Point `api.eisoptric.com` and `console.eisoptric.com` at the new services.
 4. Sign in as the first admin, then run
    `GCP_PROJECT_ID=eisoptric-prod NEW_PROJECT_ID=eisoptric-prod bash infra/gcp/move-project.sh after-first-deploy`.
