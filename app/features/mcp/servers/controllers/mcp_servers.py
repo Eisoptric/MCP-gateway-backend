@@ -10,7 +10,7 @@ from app.core.public_origin import public_origin
 from app.features.identity.auth.controllers.session_cookie import cookie_secure
 from app.core.enums import AuditEvent
 from app.features.execution.activity.services.change_log import record_change
-from app.features.identity.auth.controllers.deps import AgentsRead, CurrentUser, SaturnCloud, SessionDep, TeamRead, TeamWrite
+from app.features.identity.auth.controllers.deps import AgentsRead, CurrentUser, GatewayCloud, SessionDep, TeamRead, TeamWrite
 from app.features.identity.auth.controllers.session_cookie import COOKIE_NAME
 from app.features.mcp.servers.services import mcp_hosts
 from app.features.mcp.servers.services.mcp_endpoint import ALLOWED_MCP_HOSTS
@@ -114,12 +114,12 @@ async def add_allowed_host(
     session: SessionDep,
     user: CurrentUser,
     _access: TeamWrite,
-    _cloud: SaturnCloud,
+    _cloud: GatewayCloud,
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ):
     from app.features.identity.auth.services.auth_service import auth_service
 
-    # Approving a host widens where Saturn sends requests, credentials included, for everyone in
+    # Approving a host widens where Eisoptric sends requests, credentials included, for everyone in
     # the organization. A stolen session alone must not be enough.
     token = creds.credentials if creds is not None and creds.scheme.lower() == "bearer" else request.cookies.get(COOKIE_NAME, "")
     await auth_service.require_recent_auth(session, token)
@@ -132,7 +132,7 @@ async def add_allowed_host(
 
 @router.delete("/allowed-hosts/{host_id}", status_code=204)
 async def remove_allowed_host(host_id: str, session: SessionDep, user: CurrentUser, _access: TeamWrite):
-    # Removing only narrows what Saturn reaches, so it needs no fresh sign-in. Connections on the
+    # Removing only narrows what Eisoptric reaches, so it needs no fresh sign-in. Connections on the
     # host stay listed and fail on their next call until the host is approved again.
     row = await mcp_hosts.remove_host(session, user.organization_id, host_id)
     await record_change(session, user, AuditEvent.MCP_HOST_REMOVED, result=row.host, host_id=row.id)
@@ -147,7 +147,7 @@ async def start_mcp_oauth(
     session: SessionDep,
     user: CurrentUser,
     _access: TeamWrite,
-    _cloud: SaturnCloud,
+    _cloud: GatewayCloud,
 ):
     try:
         result = await mcp_oauth.begin(
@@ -204,7 +204,7 @@ async def read_mcp_oauth_attempt(nonce: str, response: Response, session: Sessio
 
 
 @router.post("", response_model=McpServerRead, status_code=201)
-async def connect_mcp_server(body: McpConnect, session: SessionDep, user: CurrentUser, _access: TeamWrite, _cloud: SaturnCloud):
+async def connect_mcp_server(body: McpConnect, session: SessionDep, user: CurrentUser, _access: TeamWrite, _cloud: GatewayCloud):
     server = await mcp_connect_service.connect(
         session,
         user,
@@ -216,13 +216,13 @@ async def connect_mcp_server(body: McpConnect, session: SessionDep, user: Curren
 
 
 @router.post("/{server_id}/refresh", response_model=McpServerRead)
-async def refresh_mcp_server(server_id: str, session: SessionDep, user: CurrentUser, _access: TeamWrite, _cloud: SaturnCloud):
+async def refresh_mcp_server(server_id: str, session: SessionDep, user: CurrentUser, _access: TeamWrite, _cloud: GatewayCloud):
     server = await mcp_connect_service.refresh(session, user, server_id)
     return serialize_mcp_server(server)
 
 
 @router.delete("/{server_id}", status_code=204)
-async def delete_mcp_server(server_id: str, session: SessionDep, user: CurrentUser, _access: TeamWrite, _cloud: SaturnCloud):
+async def delete_mcp_server(server_id: str, session: SessionDep, user: CurrentUser, _access: TeamWrite, _cloud: GatewayCloud):
     from app.core.enums import AuditEvent
     from app.features.execution.activity.services.change_log import record_change
     from app.models import McpServer

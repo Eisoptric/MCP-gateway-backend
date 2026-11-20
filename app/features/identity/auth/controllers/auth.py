@@ -155,7 +155,7 @@ async def serialize_user(session, user: User) -> UserRead:
         agents = [
             serialize_agent(agent)
             for agent in await mapping_service.list_org_agents(session, user.organization_id)
-            if str((agent.settings or {}).get("origin") or "") != "saturn_mcp"
+            if str((agent.settings or {}).get("origin") or "") != "gateway_mcp"
         ]
         servers = [
             serialize_mcp_server(server)

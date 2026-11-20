@@ -40,18 +40,18 @@ async def test_requests_from_another_address_do_not_block_the_owner(client, monk
     sent = await _quiet(monkeypatch)
     client.headers.pop("Authorization", None)
     attacker = {"X-Forwarded-For": "203.0.113.66"}
-    first = await client.post("/auth/forgot-password", headers=attacker, json={"email": "rick@saturn.ai"})
+    first = await client.post("/auth/forgot-password", headers=attacker, json={"email": "rick@example.com"})
     assert first.status_code == 204
-    again = await client.post("/auth/forgot-password", headers=attacker, json={"email": "rick@saturn.ai"})
+    again = await client.post("/auth/forgot-password", headers=attacker, json={"email": "rick@example.com"})
     assert again.status_code == 429
     # The owner, a moment later from their own address, still gets a code, and it works.
     owner = {"X-Forwarded-For": "198.51.100.20"}
-    mine = await client.post("/auth/forgot-password", headers=owner, json={"email": "rick@saturn.ai"})
+    mine = await client.post("/auth/forgot-password", headers=owner, json={"email": "rick@example.com"})
     assert mine.status_code == 204, mine.text
     reset = await client.post(
         "/auth/reset-password",
         headers=owner,
-        json={"email": "rick@saturn.ai", "code": sent[-1], "password": "a-new-password"},
+        json={"email": "rick@example.com", "code": sent[-1], "password": "a-new-password"},
     )
     assert reset.status_code == 204, reset.text
 
@@ -60,14 +60,14 @@ async def test_past_the_daily_ceiling_only_a_known_address_may_ask(client, monke
     await _quiet(monkeypatch)
     # The owner signed in from home before.
     home = {"X-Forwarded-For": "198.51.100.20"}
-    signed = await client.post("/auth/login", headers=home, json={"email": "rick@saturn.ai", "password": "saturn"})
+    signed = await client.post("/auth/login", headers=home, json={"email": "rick@example.com", "password": "gateway"})
     assert signed.status_code == 200, signed.text
     client.headers.pop("Authorization", None)
-    await _flood("email-all:reset:rick@saturn.ai", 30)
+    await _flood("email-all:reset:rick@example.com", 30)
 
     stranger = await client.post(
-        "/auth/forgot-password", headers={"X-Forwarded-For": "203.0.113.9"}, json={"email": "rick@saturn.ai"}
+        "/auth/forgot-password", headers={"X-Forwarded-For": "203.0.113.9"}, json={"email": "rick@example.com"}
     )
     assert stranger.status_code == 429
-    owner = await client.post("/auth/forgot-password", headers=home, json={"email": "rick@saturn.ai"})
+    owner = await client.post("/auth/forgot-password", headers=home, json={"email": "rick@example.com"})
     assert owner.status_code == 204, owner.text

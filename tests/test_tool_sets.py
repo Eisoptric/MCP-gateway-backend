@@ -13,7 +13,7 @@ async def test_each_agent_sees_only_its_own_tool_set(client, monkeypatch):
         return {"content": [{"type": "text", "text": "ok"}], "tool": name}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
 
     connected = await client.post(
         "/mcp-servers",
@@ -65,7 +65,7 @@ async def test_each_agent_sees_only_its_own_tool_set(client, monkeypatch):
     allowed = await client.post(
         "/mcp",
         headers={"Authorization": f"Bearer {cursor_token}"},
-        json={"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "saturn"}}},
+        json={"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "gateway"}}},
     )
     assert allowed.json()["result"]["tool"] == "repo.read"
 
@@ -77,7 +77,7 @@ async def test_each_agent_sees_only_its_own_tool_set(client, monkeypatch):
     assert await names(claude_token) == ["repo.read"]
 
 
-async def test_mapped_tool_set_is_what_saturn_mcp_exposes(client, monkeypatch):
+async def test_mapped_tool_set_is_what_gateway_mcp_exposes(client, monkeypatch):
     async def listed(endpoint, authorization="", **_kwargs):
         assert endpoint == "https://api.githubcopilot.com/mcp"
         assert authorization == "token-1"
@@ -93,7 +93,7 @@ async def test_mapped_tool_set_is_what_saturn_mcp_exposes(client, monkeypatch):
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
 
     connected = await client.post(
         "/mcp-servers",
@@ -134,25 +134,25 @@ async def test_mapped_tool_set_is_what_saturn_mcp_exposes(client, monkeypatch):
     session_call = await client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
-        headers={"X-Saturn-Agent-Id": agent_id},
+        headers={"X-Eisoptric-Agent-Id": agent_id},
     )
     assert session_call.status_code == 401
 
-    headers = {"Authorization": f"Bearer {access}", "X-Saturn-Agent-Id": agent_id}
+    headers = {"Authorization": f"Bearer {access}", "X-Eisoptric-Agent-Id": agent_id}
     listed_tools = await client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}, headers=headers)
     assert listed_tools.status_code == 200, listed_tools.text
     names = [item["name"] for item in listed_tools.json()["result"]["tools"]]
     assert names == ["repo.delete", "repo.read"]
     delete_tool = next(item for item in listed_tools.json()["result"]["tools"] if item["name"] == "repo.delete")
-    assert "saturnRunId" in delete_tool["inputSchema"]["properties"]
+    assert "gatewayRunId" in delete_tool["inputSchema"]["properties"]
 
     allowed = await client.post(
         "/mcp",
-        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "saturn"}}},
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "gateway"}}},
         headers=headers,
     )
     assert allowed.status_code == 200, allowed.text
-    assert allowed.json()["result"]["echo"] == {"repo": "saturn"}
+    assert allowed.json()["result"]["echo"] == {"repo": "gateway"}
 
     unlinked = await client.post(
         "/mcp",
@@ -164,15 +164,15 @@ async def test_mapped_tool_set_is_what_saturn_mcp_exposes(client, monkeypatch):
 
     held = await client.post(
         "/mcp",
-        json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "repo.delete", "arguments": {"repo": "saturn"}}},
+        json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "repo.delete", "arguments": {"repo": "gateway"}}},
         headers=headers,
     )
     assert held.status_code == 200, held.text
     error = held.json()["error"]
     assert error["data"]["code"] == "approval_pending"
-    assert "saturnRunId" in error["message"]
+    assert "gatewayRunId" in error["message"]
     approval_id = error["data"]["approval_id"]
-    run_id = error["data"]["saturnRunId"]
+    run_id = error["data"]["gatewayRunId"]
 
     decision = await client.post(f"/approvals/{approval_id}/approve")
     assert decision.status_code == 200, decision.text
@@ -183,7 +183,7 @@ async def test_mapped_tool_set_is_what_saturn_mcp_exposes(client, monkeypatch):
             "jsonrpc": "2.0",
             "id": 4,
             "method": "tools/call",
-            "params": {"name": "repo.delete", "arguments": {"repo": "saturn", "saturnRunId": run_id}},
+            "params": {"name": "repo.delete", "arguments": {"repo": "gateway", "gatewayRunId": run_id}},
         },
         headers=headers,
     )
@@ -207,7 +207,7 @@ async def test_mapped_tool_set_is_what_saturn_mcp_exposes(client, monkeypatch):
     other = await client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "id": 6, "method": "tools/list", "params": {}},
-        headers={"Authorization": f"Bearer {access}", "X-Saturn-Agent-Id": "agent_unmapped"},
+        headers={"Authorization": f"Bearer {access}", "X-Eisoptric-Agent-Id": "agent_unmapped"},
     )
     assert other.json()["error"]["message"] == "Unknown agent"
 
@@ -215,7 +215,7 @@ async def test_mapped_tool_set_is_what_saturn_mcp_exposes(client, monkeypatch):
     stolen = await client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "id": 6, "method": "tools/list", "params": {}},
-        headers={"Authorization": f"Bearer {stranger}", "X-Saturn-Agent-Id": agent_id},
+        headers={"Authorization": f"Bearer {stranger}", "X-Eisoptric-Agent-Id": agent_id},
     )
     assert stolen.json()["error"]["message"] == "Unknown agent"
 
@@ -231,14 +231,14 @@ async def test_mapped_tool_set_is_what_saturn_mcp_exposes(client, monkeypatch):
     await activate_created(client, denied)
     blocked = await client.post(
         "/mcp",
-        json={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "saturn"}}},
+        json={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "gateway"}}},
         headers=headers,
     )
     assert blocked.json()["error"]["data"]["code"] == "policy_denied"
     assert blocked.json()["error"]["message"] == blocked.json()["error"]["data"]["message"]
 
 
-async def test_agent_resubmits_by_saturn_run_id_argument(client, monkeypatch):
+async def test_agent_resubmits_by_gateway_run_id_argument(client, monkeypatch):
     seen = {}
 
     async def listed(endpoint, authorization="", **_kwargs):
@@ -249,7 +249,7 @@ async def test_agent_resubmits_by_saturn_run_id_argument(client, monkeypatch):
         return {"content": [{"type": "text", "text": "ok"}], "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     connected = await client.post(
         "/mcp-servers",
         json={"name": "GitHub", "endpoint": "https://api.githubcopilot.com/mcp", "authorization": "token-1"},
@@ -267,14 +267,14 @@ async def test_agent_resubmits_by_saturn_run_id_argument(client, monkeypatch):
     headers = {"Authorization": f"Bearer {access}"}
     first = await client.post(
         "/mcp",
-        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.delete", "arguments": {"repo": "saturn"}}},
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.delete", "arguments": {"repo": "gateway"}}},
         headers=headers,
     )
     error = first.json()["error"]
     assert error["data"]["code"] == "approval_pending"
-    run_id = error["data"]["saturnRunId"]
+    run_id = error["data"]["gatewayRunId"]
     assert run_id
-    assert error["data"]["argument"] == "saturnRunId"
+    assert error["data"]["argument"] == "gatewayRunId"
     approval_id = error["data"]["approval_id"]
     again = await client.post(
         "/mcp",
@@ -282,7 +282,7 @@ async def test_agent_resubmits_by_saturn_run_id_argument(client, monkeypatch):
             "jsonrpc": "2.0",
             "id": 3,
             "method": "tools/call",
-            "params": {"name": "repo.delete", "arguments": {"repo": "saturn", "saturnRunId": run_id}},
+            "params": {"name": "repo.delete", "arguments": {"repo": "gateway", "gatewayRunId": run_id}},
         },
         headers=headers,
     )
@@ -294,12 +294,12 @@ async def test_agent_resubmits_by_saturn_run_id_argument(client, monkeypatch):
             "jsonrpc": "2.0",
             "id": 4,
             "method": "tools/call",
-            "params": {"name": "repo.delete", "arguments": {"repo": "saturn", "saturnRunId": run_id}},
+            "params": {"name": "repo.delete", "arguments": {"repo": "gateway", "gatewayRunId": run_id}},
         },
         headers=headers,
     )
-    assert resumed.json()["result"]["echo"] == {"repo": "saturn"}
-    assert "saturnRunId" not in seen["arguments"]
+    assert resumed.json()["result"]["echo"] == {"repo": "gateway"}
+    assert "gatewayRunId" not in seen["arguments"]
 
     rejected = await client.post(
         "/mcp",
@@ -308,7 +308,7 @@ async def test_agent_resubmits_by_saturn_run_id_argument(client, monkeypatch):
     )
     rejected_error = rejected.json()["error"]
     rejected_id = rejected_error["data"]["approval_id"]
-    rejected_run = rejected_error["data"]["saturnRunId"]
+    rejected_run = rejected_error["data"]["gatewayRunId"]
     assert (await client.post(f"/approvals/{rejected_id}/reject")).status_code == 200
     repeated = await client.post(
         "/mcp",
@@ -316,7 +316,7 @@ async def test_agent_resubmits_by_saturn_run_id_argument(client, monkeypatch):
             "jsonrpc": "2.0",
             "id": 6,
             "method": "tools/call",
-            "params": {"name": "repo.delete", "arguments": {"repo": "other", "saturnRunId": rejected_run}},
+            "params": {"name": "repo.delete", "arguments": {"repo": "other", "gatewayRunId": rejected_run}},
         },
         headers=headers,
     )

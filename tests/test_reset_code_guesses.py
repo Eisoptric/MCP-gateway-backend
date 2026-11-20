@@ -1,7 +1,7 @@
 """Wrong reset codes are counted per (account, address), so a stranger cannot burn the owner's code."""
 
 OWNER = {"X-Forwarded-For": "198.51.100.20"}
-EMAIL = "rick@saturn.ai"
+EMAIL = "rick@example.com"
 
 
 async def _requested(client, monkeypatch) -> list[str]:
@@ -76,7 +76,7 @@ async def test_a_right_code_does_not_use_up_the_budget(client, monkeypatch):
 
 async def test_past_the_account_ceiling_only_a_known_address_may_guess(client, monkeypatch):
     monkeypatch.setattr("app.core.rate_limit.RESET_CODE_ACCOUNT_CEILING", 3)
-    signed = await client.post("/auth/login", headers=OWNER, json={"email": EMAIL, "password": "saturn"})
+    signed = await client.post("/auth/login", headers=OWNER, json={"email": EMAIL, "password": "gateway"})
     assert signed.status_code == 200, signed.text
     sent = await _requested(client, monkeypatch)
     for n in range(3):

@@ -44,12 +44,12 @@ async def test_marketplace_connect_opens_provider_consent_and_stores_the_token(c
         if method == "POST" and url == "https://auth.example/register":
             assert kwargs["json"]["redirect_uris"] == ["http://test/mcp-servers/oauth/callback"]
             assert kwargs["json"]["token_endpoint_auth_method"] == "none"
-            return _response(201, {"client_id": "saturn-client"})
+            return _response(201, {"client_id": "gateway-client"})
         if method == "POST" and url == "https://auth.example/token":
             form = kwargs["data"]
             assert form["grant_type"] == "authorization_code"
             assert form["code"] == "code-1"
-            assert form["client_id"] == "saturn-client"
+            assert form["client_id"] == "gateway-client"
             assert form["resource"] == "https://mcp.notion.com/mcp"
             assert form["code_verifier"]
             return _response(200, {"access_token": "access-1", "refresh_token": "refresh-1", "expires_in": 3600})
@@ -73,7 +73,7 @@ async def test_marketplace_connect_opens_provider_consent_and_stores_the_token(c
 
     page = await client.get("/mcp-servers/oauth/callback", params={"code": "code-1", "state": query["state"][0]})
     assert page.status_code == 200, page.text
-    assert "saturn-mcp-oauth" in page.text
+    assert "gateway-mcp-oauth" in page.text
     assert "nonce-12345678" in page.text
     assert "Connected" in page.text
 
@@ -123,7 +123,7 @@ async def test_provider_denial_does_not_store_a_token(client, monkeypatch):
                 },
             )
         if url.endswith("/register"):
-            return _response(201, {"client_id": "saturn-client"})
+            return _response(201, {"client_id": "gateway-client"})
         raise AssertionError(url)
 
     monkeypatch.setattr("app.features.mcp.oauth.services.mcp_oauth.list_remote_tools", listed)
@@ -175,9 +175,9 @@ async def test_github_401_asks_for_sign_in_instead_of_failing(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_github_sign_in_uses_the_configured_oauth_app(client, monkeypatch):
-    monkeypatch.setenv("SATURN_GITHUB_OAUTH_CLIENT_ID", "Iv1.saturn")
-    monkeypatch.setenv("SATURN_GITHUB_OAUTH_CLIENT_SECRET", "secret-value")
-    monkeypatch.setenv("PUBLIC_WS_URL", "https://saturn-backend-clcae2l2mq-de.a.run.app")
+    monkeypatch.setenv("GATEWAY_GITHUB_OAUTH_CLIENT_ID", "Iv1.gateway")
+    monkeypatch.setenv("GATEWAY_GITHUB_OAUTH_CLIENT_SECRET", "secret-value")
+    monkeypatch.setenv("PUBLIC_WS_URL", "https://gateway-backend-clcae2l2mq-de.a.run.app")
 
     async def listed(endpoint, authorization="", **_kwargs):
         raise McpUnauthorized(
@@ -215,16 +215,16 @@ async def test_github_sign_in_uses_the_configured_oauth_app(client, monkeypatch)
     authorize = urlparse(started.json()["authorization_url"])
     assert authorize.netloc == "github.com"
     query = parse_qs(authorize.query)
-    assert query["client_id"] == ["Iv1.saturn"]
+    assert query["client_id"] == ["Iv1.gateway"]
     assert "client_secret" not in query
     assert query["scope"] == ["repo read:user"]
-    assert query["redirect_uri"] == ["https://saturn-backend-clcae2l2mq-de.a.run.app/mcp-servers/oauth/callback"]
+    assert query["redirect_uri"] == ["https://gateway-backend-clcae2l2mq-de.a.run.app/mcp-servers/oauth/callback"]
 
 
 @pytest.mark.asyncio
 async def test_github_without_an_oauth_app_asks_for_a_pasted_token(client, monkeypatch):
-    monkeypatch.delenv("SATURN_GITHUB_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.delenv("SATURN_GITHUB_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("GATEWAY_GITHUB_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GATEWAY_GITHUB_OAUTH_CLIENT_SECRET", raising=False)
 
     async def listed(endpoint, authorization="", **_kwargs):
         raise McpUnauthorized(
@@ -258,7 +258,7 @@ async def test_github_without_an_oauth_app_asks_for_a_pasted_token(client, monke
         json={"name": "GitHub", "endpoint": "https://api.githubcopilot.com/mcp/", "nonce": "nonce-github2"},
     )
     assert started.status_code == 400
-    assert started.json()["detail"] == "This MCP server does not let Saturn start sign-in"
+    assert started.json()["detail"] == "This MCP server does not let Eisoptric start sign-in"
 
 
 async def _google_metadata(method, url, **kwargs):
@@ -291,9 +291,9 @@ async def _google_metadata(method, url, **kwargs):
 
 @pytest.mark.asyncio
 async def test_google_sign_in_uses_the_configured_oauth_client(client, monkeypatch):
-    monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_ID", "saturn.apps.googleusercontent.com")
-    monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
-    monkeypatch.setenv("PUBLIC_WS_URL", "https://saturn-backend-629072855899.asia-east1.run.app")
+    monkeypatch.setenv("GATEWAY_GOOGLE_OAUTH_CLIENT_ID", "gateway.apps.googleusercontent.com")
+    monkeypatch.setenv("GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("PUBLIC_WS_URL", "https://gateway-backend-629072855899.asia-east1.run.app")
 
     async def listed(endpoint, authorization="", **_kwargs):
         assert authorization == ""
@@ -309,13 +309,13 @@ async def test_google_sign_in_uses_the_configured_oauth_client(client, monkeypat
     authorize = urlparse(started.json()["authorization_url"])
     assert authorize.netloc == "accounts.google.com"
     query = parse_qs(authorize.query)
-    assert query["client_id"] == ["saturn.apps.googleusercontent.com"]
+    assert query["client_id"] == ["gateway.apps.googleusercontent.com"]
     assert "client_secret" not in query
     # Only gmail.modify: it covers reading, drafts and labels. Full mail.google.com is never asked for.
     assert query["scope"] == ["https://www.googleapis.com/auth/gmail.modify"]
     assert query["access_type"] == ["offline"]
     assert query["redirect_uri"] == [
-        "https://saturn-backend-629072855899.asia-east1.run.app/mcp-servers/oauth/callback"
+        "https://gateway-backend-629072855899.asia-east1.run.app/mcp-servers/oauth/callback"
     ]
 
 
@@ -329,8 +329,8 @@ async def test_google_sign_in_uses_the_configured_oauth_client(client, monkeypat
     ],
 )
 async def test_google_cloud_servers_request_their_own_scope(client, monkeypatch, host, scope):
-    monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_ID", "saturn.apps.googleusercontent.com")
-    monkeypatch.setenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
+    monkeypatch.setenv("GATEWAY_GOOGLE_OAUTH_CLIENT_ID", "gateway.apps.googleusercontent.com")
+    monkeypatch.setenv("GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET", "google-secret")
 
     async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "list_services", "description": "List", "inputSchema": {"type": "object", "properties": {}}}]
@@ -355,7 +355,7 @@ async def test_google_cloud_servers_request_their_own_scope(client, monkeypatch,
     )
     assert started.status_code == 200, started.text
     query = parse_qs(urlparse(started.json()["authorization_url"]).query)
-    assert query["client_id"] == ["saturn.apps.googleusercontent.com"]
+    assert query["client_id"] == ["gateway.apps.googleusercontent.com"]
     # cloud-platform is broader than the server needs, so it is never requested.
     assert query["scope"] == [scope]
 
@@ -386,7 +386,7 @@ async def test_google_cloud_servers_request_their_own_scope(client, monkeypatch,
             ],
             ["calendar.calendarlist.readonly", "calendar.events", "calendar.events.freebusy"],
         ),
-        # A Google host Saturn has no entry for gets nothing, even scopes another host may have.
+        # A Google host Eisoptric has no entry for gets nothing, even scopes another host may have.
         ("bigquery.googleapis.com", ["gmail.readonly", "bigquery"], []),
     ],
 )
@@ -414,8 +414,8 @@ async def test_each_google_host_gets_only_its_own_scopes(host, advertised, wante
 
 @pytest.mark.asyncio
 async def test_google_without_an_oauth_client_asks_for_a_pasted_token(client, monkeypatch):
-    monkeypatch.delenv("SATURN_GOOGLE_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.delenv("SATURN_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("GATEWAY_GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET", raising=False)
 
     async def listed(endpoint, authorization="", **_kwargs):
         return [{"name": "search_threads", "description": "Search", "inputSchema": {"type": "object", "properties": {}}}]
@@ -427,7 +427,7 @@ async def test_google_without_an_oauth_client_asks_for_a_pasted_token(client, mo
         json={"name": "Gmail", "endpoint": "https://gmailmcp.googleapis.com/mcp/v1", "nonce": "nonce-google2"},
     )
     assert started.status_code == 400
-    assert started.json()["detail"] == "This MCP server does not let Saturn start sign-in"
+    assert started.json()["detail"] == "This MCP server does not let Eisoptric start sign-in"
 
 
 async def test_authorization_requests_connect_to_the_checked_address(monkeypatch):
@@ -492,7 +492,7 @@ def _notion_flow(monkeypatch, exchanged: list):
                 },
             )
         if method == "POST" and url == "https://auth.example/register":
-            return _response(201, {"client_id": "saturn-client"})
+            return _response(201, {"client_id": "gateway-client"})
         if method == "POST" and url == "https://auth.example/token":
             exchanged.append(kwargs["data"]["code"])
             return _response(200, {"access_token": "access-1", "refresh_token": "refresh-1", "expires_in": 3600})
@@ -516,7 +516,7 @@ async def test_a_sign_in_link_opened_in_another_browser_stores_nothing(client, m
     )
     assert started.status_code == 200, started.text
     set_cookie = started.headers.get("set-cookie", "")
-    assert "saturn_mcp_moa_" in set_cookie
+    assert "gateway_mcp_moa_" in set_cookie
     assert "HttpOnly" in set_cookie and "Path=/mcp-servers/oauth/callback" in set_cookie
     state = parse_qs(urlparse(started.json()["authorization_url"]).query)["state"][0]
 
@@ -550,8 +550,8 @@ async def test_a_sign_in_link_opened_in_another_browser_stores_nothing(client, m
 def test_browser_cookie_reaches_the_callback_host():
     from app.features.mcp.oauth.services.mcp_oauth import browser_cookie_domain
 
-    assert browser_cookie_domain("https://dashboard.saturn-core.com", "https://api.saturn-core.com") == "saturn-core.com"
-    assert browser_cookie_domain("https://api.saturn-core.com", "https://api.saturn-core.com") is None
+    assert browser_cookie_domain("https://dashboard.eisoptric.com", "https://api.eisoptric.com") == "eisoptric.com"
+    assert browser_cookie_domain("https://api.eisoptric.com", "https://api.eisoptric.com") is None
     assert browser_cookie_domain("http://localhost:3000", "http://localhost:8000") is None
     assert browser_cookie_domain("https://a.example.com", "https://b.other.com") is None
     # Never a public suffix alone.
@@ -567,7 +567,7 @@ async def _expired_connection(session, server_id: str = "mcp_email"):
     from app.models import McpServer
 
     server = await session.get(McpServer, server_id)
-    server.oauth_client_id = "saturn-client"
+    server.oauth_client_id = "gateway-client"
     server.oauth_token_endpoint = "https://auth.example/token"
     server.token_expires_at = utcnow() - timedelta(minutes=1)
     await write_grant(session, server, {"access_token": "access-1", "refresh_token": "refresh-1", "client_secret": ""})
@@ -781,7 +781,7 @@ async def test_a_sign_in_attempt_is_readable_only_by_the_member_who_started_it(c
 
     from tests.test_org_hardening import _member
 
-    colleague = await _member(client, "colleague@saturn.ai", role="operator")
+    colleague = await _member(client, "colleague@example.com", role="operator")
     seen = await client.get("/mcp-servers/oauth/attempts/attempt-mine-1", headers=colleague)
     assert seen.status_code == 404
     anonymous = httpx.AsyncClient(transport=client._transport, base_url=str(client.base_url))

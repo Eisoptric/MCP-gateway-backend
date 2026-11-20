@@ -1,6 +1,6 @@
 """Hosts an organization's admins approve for MCP servers.
 
-Saturn's own list (ALLOWED_MCP_HOSTS) stays as it is. A new, empty table; no existing row changes,
+Eisoptric's own list (ALLOWED_MCP_HOSTS) stays as it is. A new, empty table; no existing row changes,
 so the previous revision keeps working while this one rolls out.
 
 Revision ID: 067_mcp_allowed_hosts

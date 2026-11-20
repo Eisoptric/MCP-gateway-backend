@@ -161,7 +161,7 @@ def _tools(body: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def permissions_for(annotations: dict[str, Any] | None) -> list[str]:
-    """Saturn permissions for an upstream tool, from its MCP annotations.
+    """Eisoptric permissions for an upstream tool, from its MCP annotations.
 
     Only a tool that declares itself read-only (readOnlyHint true, and not destructive) is read.
     A tool that says nothing is treated as write, so the default policy holds it for approval
@@ -417,7 +417,7 @@ _request_ids = itertools.count(1)
 _INITIALIZE = {
     "protocolVersion": "2024-11-05",
     "capabilities": {},
-    "clientInfo": {"name": "Saturn", "version": "0.1.0"},
+    "clientInfo": {"name": "Eisoptric", "version": "0.1.0"},
 }
 
 # How servers word "that session id is unknown" when they answer 400 instead of 404 (the

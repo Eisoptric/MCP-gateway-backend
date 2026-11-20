@@ -38,7 +38,7 @@ def upgrade() -> None:
     for name, column in additions.items():
         if name not in cols:
             op.add_column("organizations", column)
-    op.execute("UPDATE organizations SET plan = 'enterprise', status = 'active' WHERE id = 'org_saturn'")
+    op.execute("UPDATE organizations SET plan = 'enterprise', status = 'active' WHERE id = 'org_default'")
 
 
 def downgrade() -> None:

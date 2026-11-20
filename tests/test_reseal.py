@@ -39,7 +39,7 @@ async def test_reseal_moves_every_sealed_value_to_the_new_key(client):
     generator = override()
     session = await anext(generator)
     try:
-        user = (await session.scalars(select(User).where(User.email == "rick@saturn.ai"))).one()
+        user = (await session.scalars(select(User).where(User.email == "rick@example.com"))).one()
         organization_id, user_id = user.organization_id, user.id
         user.totp_secret = pq_crypto.seal("JBSWY3DPEHPK3PXP", organization_id, user_id)
         # The vault table does not name its tenant; the tool finds it by trying each one.
@@ -100,7 +100,7 @@ async def test_tenant_text_that_looks_sealed_does_not_block_a_reseal(client):
     generator = app.dependency_overrides[get_session]()
     session = await anext(generator)
     try:
-        user = (await session.scalars(select(User).where(User.email == "rick@saturn.ai"))).one()
+        user = (await session.scalars(select(User).where(User.email == "rick@example.com"))).one()
         user.name = "pq2.not-really-sealed"
         await session.commit()
         report = await reseal(await session.connection(), Keys(_local(OLD_ROOT)), Keys(_local(NEW_ROOT)), apply=False)
@@ -121,7 +121,7 @@ async def test_reseal_binds_old_vault_rows_to_their_entry(client):
     generator = app.dependency_overrides[get_session]()
     session = await anext(generator)
     try:
-        user = (await session.scalars(select(User).where(User.email == "rick@saturn.ai"))).one()
+        user = (await session.scalars(select(User).where(User.email == "rick@example.com"))).one()
         organization_id = user.organization_id
         session.add(SecretVault(id="mcp-legacy", ciphertext=pq_crypto.seal("tok", organization_id), updated_at=utcnow()))
         session.add(SecretVault(id="mcp-bound", ciphertext=pq_crypto.seal("tok2", organization_id, "", "vault:mcp-bound"), updated_at=utcnow()))
@@ -151,7 +151,7 @@ async def test_reseal_recomputes_the_digests_a_waiting_approval_is_checked_again
     generator = app.dependency_overrides[get_session]()
     session = await anext(generator)
     try:
-        user = (await session.scalars(select(User).where(User.email == "rick@saturn.ai"))).one()
+        user = (await session.scalars(select(User).where(User.email == "rick@example.com"))).one()
         organization_id = user.organization_id
         arguments = {"amount": 900, "to": "acct_1"}
 

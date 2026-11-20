@@ -290,9 +290,9 @@ async def test_the_api_is_sampled_from_outside_when_it_has_a_public_address(monk
         return answer
 
     monkeypatch.setattr(service_status.httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(handler), **kwargs))
-    monkeypatch.setenv("PUBLIC_WS_URL", "wss://api.saturn-core.com")
+    monkeypatch.setenv("PUBLIC_WS_URL", "wss://api.eisoptric.com")
     assert [await service_status._api_from_outside() for _ in range(3)] == ["operational", "down", "down"]
-    assert asked == ["https://api.saturn-core.com/health"] * 3
+    assert asked == ["https://api.eisoptric.com/health"] * 3
 
 
 async def test_two_samples_recorded_at_once_are_each_counted_once(client):

@@ -34,7 +34,7 @@ def _clip(value: str, limit: int) -> str:
 
 def vault_id_for(organization_id: str, credential_id: str) -> str:
     """Credential ids are per organization, so the vault entry name carries the organization too."""
-    org_tag = hashlib.sha256(f"saturn-credential-org\n{organization_id}".encode()).hexdigest()[:16]
+    org_tag = hashlib.sha256(f"gateway-credential-org\n{organization_id}".encode()).hexdigest()[:16]
     return f"org-{org_tag}-{credential_id}"
 
 

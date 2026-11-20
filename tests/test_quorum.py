@@ -19,10 +19,10 @@ async def _people(client):
         body = accepted.json()
         return body["user"]["employee"]["id"], body["token"]
 
-    first = await member("approver-one@saturn.ai")
-    second = await member("approver-two@saturn.ai")
-    third = await member("approver-three@saturn.ai")
-    viewer = await member("approver-view@saturn.ai", "viewer")
+    first = await member("approver-one@example.com")
+    second = await member("approver-two@example.com")
+    third = await member("approver-three@example.com")
+    viewer = await member("approver-view@example.com", "viewer")
     return first, second, third, viewer
 
 
@@ -39,7 +39,7 @@ async def _quorum_tool(client, monkeypatch, *, expires_minutes=None, allow_reque
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
 
     connected = await client.post(
         "/mcp-servers",
@@ -105,7 +105,7 @@ def _auth(token: str) -> dict[str, str]:
 async def _request(client, access, agent_id, arguments, *, run_id=""):
     payload = dict(arguments)
     if run_id:
-        payload["saturnRunId"] = run_id
+        payload["gatewayRunId"] = run_id
     held = await client.post(
         "/mcp",
         json={
@@ -116,7 +116,7 @@ async def _request(client, access, agent_id, arguments, *, run_id=""):
         },
         headers={
             "Authorization": f"Bearer {access}",
-            "X-Saturn-Agent-Id": agent_id,
+            "X-Eisoptric-Agent-Id": agent_id,
         },
     )
     assert held.status_code == 200, held.text
@@ -162,7 +162,7 @@ async def test_two_distinct_approvals_execute_once(client, monkeypatch):
     assert second.json()["status"] == "completed"
     assert calls["n"] == 1
 
-    resumed = await _request(client, access, agent_id, {"amount": 900}, run_id=body["error"]["data"]["saturnRunId"])
+    resumed = await _request(client, access, agent_id, {"amount": 900}, run_id=body["error"]["data"]["gatewayRunId"])
     assert resumed["result"]["tool"] == "pay.send"
     # The upstream received the approved arguments, not a digest record.
     assert resumed["result"]["echo"] == {"amount": 900}
@@ -219,7 +219,7 @@ async def test_reject_cancel_expiry_and_mismatch_do_not_execute(client, monkeypa
 
     changed = await _request(client, access, agent_id, {"amount": 3})
     changed_id = changed["error"]["data"]["approval_id"]
-    mismatched = await _request(client, access, agent_id, {"amount": 4}, run_id=changed["error"]["data"]["saturnRunId"])
+    mismatched = await _request(client, access, agent_id, {"amount": 4}, run_id=changed["error"]["data"]["gatewayRunId"])
     assert mismatched["error"]["data"]["code"] == "approval_args_mismatch"
     assert (await client.post(f"/approvals/{changed_id}/approve", headers=_auth(people[0][1]))).status_code == 409
 
@@ -255,7 +255,7 @@ async def test_expired_and_uncertain_upstream_do_not_retry(client, monkeypatch):
         calls["n"] += 1
         raise McpTimeout("MCP server did not answer (ReadTimeout)")
 
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", timeout)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", timeout)
     uncertain_body = await _request(client, access, agent_id, {"amount": 9})
     uncertain_id = uncertain_body["error"]["data"]["approval_id"]
     assert (await client.post(f"/approvals/{uncertain_id}/approve", headers=_auth(people[0][1]))).json()["status"] == "pending"
@@ -266,7 +266,7 @@ async def test_expired_and_uncertain_upstream_do_not_retry(client, monkeypatch):
     )
     assert failed.status_code == 409, failed.text
     assert calls["n"] == 1
-    retry = await _request(client, access, agent_id, {"amount": 9}, run_id=uncertain_body["error"]["data"]["saturnRunId"])
+    retry = await _request(client, access, agent_id, {"amount": 9}, run_id=uncertain_body["error"]["data"]["gatewayRunId"])
     assert retry["error"]["message"] == "execution_uncertain"
     assert calls["n"] == 1
 
@@ -278,7 +278,7 @@ async def test_groups_work_on_every_plan_and_stay_in_their_org(client):
         "/admin/orgs",
         json={
             "name": "Other",
-            "admin_email": "other-admin@saturn.ai",
+            "admin_email": "other-admin@example.com",
             "admin_name": "Other",
             "admin_password": "password1",
             "plan": "team",
@@ -288,7 +288,7 @@ async def test_groups_work_on_every_plan_and_stay_in_their_org(client):
     assert other.status_code == 201, other.text
     assert other.json()["plan"] == "team"
     assert other.json()["kind"] == "organization"
-    signed = await client.post("/auth/login", json={"email": "other-admin@saturn.ai", "password": "password1"})
+    signed = await client.post("/auth/login", json={"email": "other-admin@example.com", "password": "password1"})
     foreign_headers = _auth(signed.json()["token"])
     from tests.totp_access import finish_totp
 
@@ -299,7 +299,7 @@ async def test_groups_work_on_every_plan_and_stay_in_their_org(client):
     assert hidden.status_code == 404
     assert (await client.get("/approvals", headers=foreign_headers)).json() == []
 
-    moved = await client.patch("/admin/orgs/org_saturn", json={"plan": "pro"})
+    moved = await client.patch("/admin/orgs/org_default", json={"plan": "pro"})
     assert moved.status_code == 200, moved.text
     org = await client.get("/org")
     assert org.json()["organization"]["entitlements"]["groups"] is True
@@ -335,7 +335,7 @@ async def test_payment_needs_finance_and_admin(client, monkeypatch):
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     connected = await client.post(
         "/mcp-servers",
         json={"name": "Payments", "endpoint": "https://mcp.stripe.com/mcp", "authorization": "token-1"},
@@ -444,7 +444,7 @@ async def test_payment_needs_finance_and_admin(client, monkeypatch):
     assert second_finance.status_code == 200, second_finance.text
     assert second_finance.json()["status"] == "completed"
     assert calls["n"] == 1
-    resumed = await _request(client, access, agent_id, {"amount": 900}, run_id=body["error"]["data"]["saturnRunId"])
+    resumed = await _request(client, access, agent_id, {"amount": 900}, run_id=body["error"]["data"]["gatewayRunId"])
     assert resumed["result"]["tool"] == "pay.send"
     assert resumed["result"]["echo"] == {"amount": 900}
     assert calls["n"] == 1

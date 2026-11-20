@@ -100,7 +100,7 @@ class AdminService:
             "stats": stats,
             "services": [
                 {"id": "api", "name": "API", "status": "operational"},
-                {"id": "gateway", "name": "Saturn MCP", "status": mcp_status},
+                {"id": "gateway", "name": "MCP Gateway", "status": mcp_status},
                 {"id": "database", "name": "Database", "status": db_status},
             ],
             "events": events,
@@ -414,7 +414,7 @@ class AdminService:
                     "channels": [
                         {
                             "id": "gateway",
-                            "name": "Saturn MCP",
+                            "name": "MCP Gateway",
                             "status": gateway["status"] if int(gateway["total"] or 0) else "none",
                             "last_heartbeat_at": None,
                             "detail": f"{gateway['connected']}/{gateway['total']} servers",
@@ -561,7 +561,7 @@ class AdminService:
         admins = [user for user in await self.list_users(session) if user.is_platform_admin]
         return {
             "platform": {
-                "name": "Saturn",
+                "name": "Eisoptric",
                 "version": "0.1.0",
                 "default_org_id": settings.default_org_id,
                 "session_ttl_days": settings.session_ttl_days,

@@ -2,7 +2,7 @@ async def test_subscription_has_no_synthetic_billing(client):
     response = await client.get("/org/subscription")
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["organization_id"] == "org_saturn"
+    assert body["organization_id"] == "org_default"
     assert body["plan"]["kind"] == "plan"
     assert body["plan"]["id"] in {"free", "pro", "enterprise"}
     assert body["payment"]["demo"] is False

@@ -1,14 +1,14 @@
 import pytest
 
-from app.features.organization.org.services.plans import allows_pro, allows_saturn_cloud, entitlements
+from app.features.organization.org.services.plans import allows_pro, allows_gateway_cloud, entitlements
 from tests.oauth_access import oauth_access
 from tests.totp_access import finish_totp
 
 
 def test_every_plan_gets_every_feature():
-    # Saturn is free; an unknown or missing plan reads as free and gets the same.
+    # Eisoptric is free; an unknown or missing plan reads as free and gets the same.
     for plan in (None, "", "nope", "trial", "free", "starter", "pro", "team", "enterprise"):
-        assert allows_saturn_cloud(plan) is True
+        assert allows_gateway_cloud(plan) is True
         assert allows_pro(plan) is True
     free = entitlements("free")
     assert free["tool_set_limit"] is None
@@ -69,7 +69,7 @@ async def test_free_connects_tool_sets_and_uses_every_api(client, monkeypatch):
         return {"content": [{"type": "text", "text": "ok"}], "tool": name, "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
 
     token = await _onboard(client, name="Free", email="free-ent@example.com", plan="free")
     headers = _auth(token)
@@ -122,8 +122,8 @@ async def test_free_connects_tool_sets_and_uses_every_api(client, monkeypatch):
 
     blocked = await client.post(
         "/mcp",
-        headers={**headers, "X-Saturn-Agent-Id": first.json()["id"]},
-        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "saturn"}}},
+        headers={**headers, "X-Eisoptric-Agent-Id": first.json()["id"]},
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "gateway"}}},
     )
     assert blocked.status_code == 401
 
@@ -137,25 +137,25 @@ async def test_free_connects_tool_sets_and_uses_every_api(client, monkeypatch):
     caller_id = next(item["id"] for item in (await client.get("/agents", headers=headers)).json() if item["name"] == "Free Caller")
     caller_set = await client.patch(f"/agents/{caller_id}", headers=headers, json={"tool_set_id": tool_set_id})
     assert caller_set.status_code == 200, caller_set.text
-    agent_headers = {"Authorization": f"Bearer {access}", "X-Saturn-Agent-Id": caller_id}
+    agent_headers = {"Authorization": f"Bearer {access}", "X-Eisoptric-Agent-Id": caller_id}
     stolen = await client.post(
         "/mcp",
-        headers={"Authorization": f"Bearer {access}", "X-Saturn-Agent-Id": first.json()["id"]},
-        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "saturn"}}},
+        headers={"Authorization": f"Bearer {access}", "X-Eisoptric-Agent-Id": first.json()["id"]},
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "gateway"}}},
     )
     assert stolen.json()["error"]["message"] == "Unknown agent"
     allowed = await client.post(
         "/mcp",
         headers=agent_headers,
-        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "saturn"}}},
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "gateway"}}},
     )
     assert allowed.status_code == 200, allowed.text
-    assert allowed.json()["result"]["echo"] == {"repo": "saturn"}
+    assert allowed.json()["result"]["echo"] == {"repo": "gateway"}
 
     held = await client.post(
         "/mcp",
         headers=agent_headers,
-        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.delete", "arguments": {"repo": "saturn"}}},
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.delete", "arguments": {"repo": "gateway"}}},
     )
     assert held.json()["error"]["data"]["code"] == "approval_pending"
 
@@ -168,7 +168,7 @@ async def test_free_connects_tool_sets_and_uses_every_api(client, monkeypatch):
 
     # Policies are open on every plan, so the organization's default policy is listed.
     listed = (await client.get("/policies", headers=headers)).json()
-    assert [item["description"] for item in listed] == ["saturn-default-v1"]
+    assert [item["description"] for item in listed] == ["eisoptric-default-v1"]
     for path, body in (
         ("/policies", {"name": "Hidden", "rules": []}),
         ("/policies/generate", {"tool_set_id": tool_set_id, "name": "Draft"}),
@@ -311,7 +311,7 @@ async def test_rbac_blocks_policy_writes_on_a_pro_org(client):
     invited = await client.post(
         "/org/invites",
         json={
-            "email": "viewer-ent@saturn.ai",
+            "email": "viewer-ent@example.com",
             "name": "Viewer",
             "title": "Analyst",
             "role": "viewer",

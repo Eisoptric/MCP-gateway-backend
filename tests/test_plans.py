@@ -5,7 +5,7 @@ from tests.totp_access import finish_totp
 
 
 @pytest.mark.asyncio
-async def test_free_is_personal_and_pro_can_use_saturn_mcp(client):
+async def test_free_is_personal_and_pro_can_use_gateway_mcp(client):
     created = await client.post(
         "/admin/orgs",
         json={
@@ -68,14 +68,14 @@ async def test_free_is_personal_and_pro_can_use_saturn_mcp(client):
     assert still_blocked.status_code == 401
     mismatched = await client.post(
         "/mcp",
-        headers={**oauth_headers, "X-Saturn-Profile": "org_other:someone"},
+        headers={**oauth_headers, "X-Eisoptric-Profile": "org_other:someone"},
         json={"jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": {}},
     )
     assert mismatched.status_code == 200
     assert mismatched.json()["error"]["message"] == "Profile does not match"
     matched = await client.post(
         "/mcp",
-        headers={**oauth_headers, "X-Saturn-Profile": signed.json()["user"]["id"]},
+        headers={**oauth_headers, "X-Eisoptric-Profile": signed.json()["user"]["id"]},
         json={"jsonrpc": "2.0", "id": 8, "method": "tools/list", "params": {}},
     )
     assert matched.status_code == 200
@@ -87,8 +87,8 @@ async def test_free_is_personal_and_pro_can_use_saturn_mcp(client):
         "/mcp",
         headers={
             **oauth_headers,
-            "X-Saturn-Profile": signed.json()["user"]["id"],
-            "X-Saturn-Agent-Id": agent_id,
+            "X-Eisoptric-Profile": signed.json()["user"]["id"],
+            "X-Eisoptric-Agent-Id": agent_id,
         },
         json={"jsonrpc": "2.0", "id": 9, "method": "initialize", "params": {}},
     )
@@ -98,7 +98,7 @@ async def test_free_is_personal_and_pro_can_use_saturn_mcp(client):
     assert not listed.json().get("origin")
     opened = await client.post(
         "/mcp",
-        headers={**oauth_headers, "X-Saturn-Profile": signed.json()["user"]["id"]},
+        headers={**oauth_headers, "X-Eisoptric-Profile": signed.json()["user"]["id"]},
         json={
             "jsonrpc": "2.0",
             "id": 11,
@@ -113,7 +113,7 @@ async def test_free_is_personal_and_pro_can_use_saturn_mcp(client):
     assert opened.status_code == 200, opened.text
     visible = await client.get("/agents", headers=headers)
     cursor = next(item for item in visible.json() if item["name"] == "Cursor")
-    assert cursor["origin"] == "saturn_mcp"
+    assert cursor["origin"] == "gateway_mcp"
     assert cursor["profile_id"] == signed.json()["user"]["id"]
     account = await client.get("/auth/me", headers=headers)
     assert all(item["name"] != "Cursor" for item in account.json()["agents"])

@@ -6,7 +6,7 @@ from fastapi import Request, Response
 
 from app.core.config import get_settings
 
-COOKIE_NAME = "saturn_session"
+COOKIE_NAME = "eisoptric_session"
 
 
 def cookie_secure(request: Request) -> bool:

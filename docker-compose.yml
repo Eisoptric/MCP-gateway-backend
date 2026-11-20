@@ -1,21 +1,21 @@
 # Local development only. Passwords come from .env (see .env.example); the
 # database and Redis listen on 127.0.0.1 only, so nothing else on the network
 # can reach them.
-name: saturn
+name: gateway
 
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: saturn
+      POSTGRES_USER: gateway
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: saturn
+      POSTGRES_DB: gateway
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
-      - saturn_pg:/var/lib/postgresql/data
+      - gateway_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U saturn -d saturn"]
+      test: ["CMD-SHELL", "pg_isready -U gateway -d gateway"]
       interval: 2s
       timeout: 5s
       retries: 20
@@ -41,7 +41,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://saturn:${POSTGRES_PASSWORD}@postgres:5432/saturn
+      DATABASE_URL: postgresql+asyncpg://gateway:${POSTGRES_PASSWORD}@postgres:5432/gateway
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       postgres:
@@ -53,4 +53,4 @@ services:
       - .:/app
 
 volumes:
-  saturn_pg:
+  gateway_pg:

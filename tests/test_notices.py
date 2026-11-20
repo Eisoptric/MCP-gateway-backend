@@ -22,7 +22,7 @@ async def test_profile_notices_email_only_the_selected_events(client, monkeypatc
     assert created.status_code == 201, created.text
     assert sent
     assert {item[1] for item in sent} == {"approval"}
-    assert sent[0][0] == "rick@saturn.ai"
+    assert sent[0][0] == "rick@example.com"
     assert "billing.refund" in {item[2] for item in sent}
     assert "/approvals" in sent[0][5]
     assert "sk-" not in " ".join(sent[0])
@@ -150,7 +150,7 @@ def test_task_notice_does_not_include_secrets():
         "completed",
         "Refund 50 for Acme",
         "Acme Ops",
-        "https://dashboard.saturn-core.com/activity?event=run_1",
+        "https://dashboard.eisoptric.com/activity?event=run_1",
         "en-US",
         lines=lines,
         detail="",
@@ -158,4 +158,4 @@ def test_task_notice_does_not_include_secrets():
     assert "sk_live_secret" not in text
     assert "sk_live_secret" not in html
     assert "Task completed" in text
-    assert "https://dashboard.saturn-core.com/activity?event=run_1" in html
+    assert "https://dashboard.eisoptric.com/activity?event=run_1" in html

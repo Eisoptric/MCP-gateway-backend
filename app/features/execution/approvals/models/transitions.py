@@ -8,7 +8,7 @@
        └─ expire
 
 A quorum's last vote approves and claims in one step. A claim is released only when its call
-never left Saturn, so a call is still sent at most once. Nothing else is allowed: a change that is
+never left Eisoptric, so a call is still sent at most once. Nothing else is allowed: a change that is
 not listed here cannot be made, and ApprovalLifecycle applies each one only while the stored row
 is still where the change starts.
 """
@@ -73,7 +73,7 @@ CANCEL = _from_pending("cancel", ApprovalStatus.CANCELLED)
 # The agent sent an approved call again: only one sender may run it.
 CLAIM = _from_approved("claim", execution_to=ExecutionState.CLAIMED)
 
-# The claimed call never left Saturn (its credentials could not be read), so it can be sent later.
+# The claimed call never left Eisoptric (its credentials could not be read), so it can be sent later.
 RELEASE = Transition("release", ExecutionState.CLAIMED, ApprovalStatus.APPROVED, execution_to=ExecutionState.NONE)
 
 INVALIDATE = {

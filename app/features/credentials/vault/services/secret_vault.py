@@ -20,7 +20,7 @@ _SECRET_ID = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 def _project() -> str:
-    return (get_settings().saturn_secret_project or "").strip()
+    return (get_settings().gateway_secret_project or "").strip()
 
 
 def _legacy_gcp_name(secret_id: str) -> str:
@@ -33,8 +33,8 @@ def _gcp_name(secret_id: str, organization_id: str) -> str:
     """Unique per (organization, exact secret id): both are hashed, so nothing collapses."""
     if not organization_id:
         raise ValueError("organization id is required for a Secret Manager name")
-    org_tag = hashlib.sha256(f"saturn-secret-org\n{organization_id}".encode()).hexdigest()[:24]
-    id_tag = hashlib.sha256(f"saturn-secret-id\n{secret_id}".encode()).hexdigest()[:24]
+    org_tag = hashlib.sha256(f"gateway-secret-org\n{organization_id}".encode()).hexdigest()[:24]
+    id_tag = hashlib.sha256(f"gateway-secret-id\n{secret_id}".encode()).hexdigest()[:24]
     readable = _SECRET_ID.sub("-", secret_id).strip("-")[:80]
     return f"sat2-{org_tag}-{id_tag}-{readable}".rstrip("-")[:255]
 

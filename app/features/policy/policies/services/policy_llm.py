@@ -108,7 +108,7 @@ def _guard(tool: dict[str, Any], proposal: dict[str, Any] | None) -> dict[str, A
     if conditions is None:
         analysis_status = "insufficient"
         conditions = []
-        rationale = "The model proposed a condition Saturn cannot check. Review this tool by hand."
+        rationale = "The model proposed a condition Eisoptric cannot check. Review this tool by hand."
     if analysis_status != "analyzed":
         decision = "deny"
     return {

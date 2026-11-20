@@ -41,8 +41,8 @@ def behind_cloudflare() -> bool:
     return bool(os.environ.get("ORIGIN_AUTH_SECRET", "").strip())
 
 
-CONSOLE_AUTH_HEADER = "x-saturn-console-auth"
-CONSOLE_CLIENT_IP_HEADER = "x-saturn-client-ip"
+CONSOLE_AUTH_HEADER = "x-eisoptric-console-auth"
+CONSOLE_CLIENT_IP_HEADER = "x-eisoptric-client-ip"
 
 
 def _console_secret_ok(presented: str) -> bool:
@@ -160,7 +160,7 @@ def _memory_allow(key: str, *, limit: int, window: int) -> bool:
 
 async def _redis_allow(key: str, *, limit: int, window: int) -> bool:
     client = _redis_client()
-    count = int(await client.eval(_INCR_WITH_TTL, 1, f"saturn:rate:{key}", int(window)))
+    count = int(await client.eval(_INCR_WITH_TTL, 1, f"gateway:rate:{key}", int(window)))
     return count <= limit
 
 
@@ -173,7 +173,7 @@ async def under_limit(key: str, *, limit: int, window: int = WINDOW_SECONDS) -> 
     """Whether key has fewer than limit hits in the window, without adding one."""
     if _use_redis():
         try:
-            raw = await _redis_client().get(f"saturn:rate:{key}")
+            raw = await _redis_client().get(f"gateway:rate:{key}")
             return int(raw or 0) < limit
         except Exception:
             return False
@@ -197,7 +197,7 @@ async def release(key: str) -> None:
     """Hand back one hit that allow() counted. Used when the attempt turned out not to be a failure."""
     if _use_redis():
         try:
-            await _redis_client().eval(_DECR_FLOOR, 1, f"saturn:rate:{key}")
+            await _redis_client().eval(_DECR_FLOOR, 1, f"gateway:rate:{key}")
         except Exception:  # noqa: S110
             # The hit stays counted and expires with its window: the safe direction.
             pass
@@ -238,7 +238,7 @@ def _pair_digest(email: str, address: str) -> str:
 async def _mark(key: str, seconds: int) -> None:
     if _use_redis():
         try:
-            await _redis_client().set(f"saturn:mark:{key}", "1", ex=seconds)
+            await _redis_client().set(f"gateway:mark:{key}", "1", ex=seconds)
         except Exception:  # noqa: S110
             # Only an exemption is lost; the limits still apply.
             pass
@@ -249,7 +249,7 @@ async def _mark(key: str, seconds: int) -> None:
 async def _marked(key: str) -> bool:
     if _use_redis():
         try:
-            return bool(await _redis_client().get(f"saturn:mark:{key}"))
+            return bool(await _redis_client().get(f"gateway:mark:{key}"))
         except Exception:
             return False
     until = _marks.get(key)

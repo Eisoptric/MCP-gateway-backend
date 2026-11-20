@@ -30,7 +30,7 @@ async def test_personal_photo_and_org_photo_permissions(client):
 
     invited = await client.post(
         "/org/invites",
-        json={"email": "photo-viewer@saturn.ai", "name": "Viewer", "title": "Analyst", "role": "viewer"},
+        json={"email": "photo-viewer@example.com", "name": "Viewer", "title": "Analyst", "role": "viewer"},
     )
     assert invited.status_code == 201, invited.text
     accepted = await client.post(

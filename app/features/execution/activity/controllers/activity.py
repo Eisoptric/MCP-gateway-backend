@@ -19,12 +19,12 @@ from app.schemas import ActivityEventRead
 
 router = APIRouter(prefix="/activity", tags=["activity"])
 
-SATURN_MCP_SOURCE = "saturn_mcp"
+GATEWAY_MCP_SOURCE = "gateway_mcp"
 
 
-def recorded_by_saturn_mcp(entry: AuditLog) -> bool:
+def recorded_by_gateway_mcp(entry: AuditLog) -> bool:
     payload = entry.payload if isinstance(entry.payload, dict) else {}
-    return payload.get("source") == SATURN_MCP_SOURCE
+    return payload.get("source") == GATEWAY_MCP_SOURCE
 
 
 def _read(item: AuditLog) -> ActivityEventRead:
@@ -95,7 +95,7 @@ async def _rows(
     days = audit_retention_days(plan)
     stmt = select(AuditLog).where(
         AuditLog.organization_id == user.organization_id,
-        AuditLog.source == SATURN_MCP_SOURCE,
+        AuditLog.source == GATEWAY_MCP_SOURCE,
     )
     if run_id:
         stmt = stmt.where(AuditLog.run_id == run_id)
@@ -236,7 +236,7 @@ async def reveal_activity(
     _access: AgentsRead,
 ):
     entry = await session.get(AuditLog, event_id)
-    if entry is None or entry.organization_id != user.organization_id or not recorded_by_saturn_mcp(entry):
+    if entry is None or entry.organization_id != user.organization_id or not recorded_by_gateway_mcp(entry):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Record not found")
     payload = entry.payload if isinstance(entry.payload, dict) else {}
     envelope = payload.get("envelope") if isinstance(payload.get("envelope"), dict) else None
@@ -252,6 +252,6 @@ async def reveal_activity(
         action_id=entry.action_id,
         tool=entry.tool,
         result="ciphertext",
-        payload={"event_id": entry.id, "source": "saturn_mcp", "org_key_version": envelope.get("org_key_version")},
+        payload={"event_id": entry.id, "source": "gateway_mcp", "org_key_version": envelope.get("org_key_version")},
     )
     return {"envelope": envelope, "decrypt": "client"}

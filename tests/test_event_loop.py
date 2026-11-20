@@ -96,7 +96,7 @@ async def test_a_failed_direct_call_records_how_it_ended(client, monkeypatch):
     async def unknown(endpoint, tool, arguments, authorization="", **_kwargs):
         raise McpOutcomeUnknown("MCP server returned HTTP 500")
 
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", unknown)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", unknown)
     with pytest.raises(AssertionError):
         await call({"repo": "breaks"})
     rows = (await client.get("/activity", params={"tool": "repo.read"})).json()
@@ -152,9 +152,9 @@ async def test_password_hashing_runs_in_a_worker_thread(client, monkeypatch):
         return real(*args, **kwargs)
 
     monkeypatch.setattr(auth_service, "check_sign_in", verify)
-    wrong = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": "not it"})
+    wrong = await client.post("/auth/login", json={"email": "rick@example.com", "password": "not it"})
     assert wrong.status_code == 401
-    right = await client.post("/auth/login", json={"email": "rick@saturn.ai", "password": "saturn"})
+    right = await client.post("/auth/login", json={"email": "rick@example.com", "password": "gateway"})
     assert right.status_code == 200, right.text
     assert seen and threading.get_ident() not in seen
 

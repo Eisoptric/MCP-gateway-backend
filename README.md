@@ -1,15 +1,15 @@
 <div align="center">
 
-# Saturn Backend
+# MCP Gateway Backend
 
-**The API behind Saturn MCP, the hosted gateway that decides what AI agents may do.**
+**The API behind MCP Gateway, the hosted gateway that decides what AI agents may do.**
 
-Agents call one MCP endpoint. Saturn shows each agent only its tool set, checks every call against policy, holds the sensitive ones for a person to approve, forwards the rest to the real MCP server with a sealed credential, and records each step.
+Agents call one MCP endpoint. Eisoptric shows each agent only its tool set, checks every call against policy, holds the sensitive ones for a person to approve, forwards the rest to the real MCP server with a sealed credential, and records each step.
 
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.162-009688.svg?logo=fastapi&logoColor=white)
-[![Test](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/actions/workflows/test.yml/badge.svg)](https://github.com/Saturn-Technology-Project/Saturn-MCP-Backend/actions/workflows/test.yml)
+[![Test](https://github.com/eisoptric/MCP-gateway-backend/actions/workflows/test.yml/badge.svg)](https://github.com/eisoptric/MCP-gateway-backend/actions/workflows/test.yml)
 
 [Features](#features) · [Architecture](#architecture) · [Quick start](#quick-start) · [Policies](#policies-and-approvals) · [Security](#security) · [Configuration](#configuration) · [Deploy](#deploy) · [Known limitations](#known-limitations) · [Changelog](CHANGELOG.md) · [中文](README_ZH.md)
 
@@ -19,9 +19,9 @@ Agents call one MCP endpoint. Saturn shows each agent only its tool set, checks 
 
 ## What it is
 
-Saturn MCP sits between AI agents and the MCP servers they use. An agent connects to Saturn instead of to each server, signs in with OAuth, and sees only the tools its organization put in its tool set. Every call is evaluated before anything reaches the upstream server.
+MCP Gateway sits between AI agents and the MCP servers they use. An agent connects to Eisoptric instead of to each server, signs in with OAuth, and sees only the tools its organization put in its tool set. Every call is evaluated before anything reaches the upstream server.
 
-This repository is the API: a FastAPI app on Cloud Run with Postgres and Redis. The console at [dashboard.saturn-core.com](https://dashboard.saturn-core.com) is a separate repository ([Saturn-MCP-Frontend](https://github.com/Saturn-Technology-Project/Saturn-MCP-Frontend)), and [saturn-core.com](https://saturn-core.com) describes the product. Saturn App, the desktop agent, can be pointed at Saturn MCP like any other MCP client.
+This repository is the API: a FastAPI app on Cloud Run with Postgres and Redis. The console at [dashboard.eisoptric.com](https://dashboard.eisoptric.com) is a separate repository ([MCP-gateway-frontend](https://github.com/eisoptric/MCP-gateway-frontend)), and [eisoptric.com](https://eisoptric.com) describes the product. Workbench, the desktop agent, can be pointed at MCP Gateway like any other MCP client.
 
 - **One endpoint per organization.** `POST /mcp` speaks MCP over HTTP (`initialize`, `tools/list`, `tools/call`). Each OAuth client that connects becomes an agent of the signed-in member.
 - **Default deny.** A tool that has rules but no matching rule is denied. A tool no policy has a rule for follows the agent's tool set: approval if the item is marked for approval, otherwise allowed. Anything else is denied.
@@ -34,9 +34,9 @@ The control plane starts **empty**. Bootstrap creates a platform admin only: no 
 
 | | |
 |---|---|
-| **MCP gateway** | `POST /mcp` for JSON-RPC and `GET /mcp` for server-sent notifications, with `Mcp-Session-Id` sessions issued by the server. OAuth 2.1 with PKCE (`S256`) and dynamic client registration, scope `saturn.mcp`, discovered through `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`. |
+| **MCP gateway** | `POST /mcp` for JSON-RPC and `GET /mcp` for server-sent notifications, with `Mcp-Session-Id` sessions issued by the server. OAuth 2.1 with PKCE (`S256`) and dynamic client registration, scope `eisoptric.mcp`, discovered through `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`. |
 | **Agents** | One agent per connected OAuth client and member (at most 25 per member, 5 per client), or created through `/agents`. Each agent has one tool set. |
-| **MCP servers** | Connect an upstream server by HTTPS URL on a host Saturn or the organization's admins approved, with a static authorization header or OAuth (discovery, dynamic registration, token refresh). Its tools are discovered on connect and on refresh. |
+| **MCP servers** | Connect an upstream server by HTTPS URL on a host Eisoptric or the organization's admins approved, with a static authorization header or OAuth (discovery, dynamic registration, token refresh). Its tools are discovered on connect and on refresh. |
 | **Tool sets** | Named groups of discovered tools. A tool set item can be marked to always require approval. |
 | **Policies** | Per-tool rules on argument values (`gt`, `gte`, `lt`, `lte`, `eq`, `ne`) with an `allow`, `approval` or `deny` decision. Validate, simulate and activate; optionally draft rules with a model you configure. |
 | **Approvals** | Approval policies with a required count, group requirements, a self-approval switch, and expiry windows. Votes are recorded per member; the call runs at most once. |
@@ -52,9 +52,9 @@ The control plane starts **empty**. Bootstrap creates a platform admin only: no 
 ```mermaid
 flowchart LR
   C["MCP client<br/><sub>an agent</sub>"] -- "OAuth bearer · /mcp" --> G
-  F["Console<br/><sub>dashboard.saturn-core.com</sub>"] -- "session token" --> API
-  subgraph API["Saturn Backend · FastAPI on Cloud Run"]
-    G["Saturn MCP gateway"] --> P["Policy engine"]
+  F["Console<br/><sub>dashboard.eisoptric.com</sub>"] -- "session token" --> API
+  subgraph API["MCP Gateway Backend · FastAPI on Cloud Run"]
+    G["MCP Gateway"] --> P["Policy engine"]
     P --> A["Approvals"]
     A --> E["Executor"]
     E --> L["Audit log"]
@@ -72,7 +72,7 @@ flowchart LR
 
 | Step | What happens | Code |
 |---|---|---|
-| **Run** | A `tools/call` opens a run and an action. An agent resubmitting an approved call sets `saturnRunId`, which every exposed tool schema carries, to the run id from the `approval_required` error. | `features/mcp/saturn`, `features/execution/runs` |
+| **Run** | A `tools/call` opens a run and an action. An agent resubmitting an approved call sets `gatewayRunId`, which every exposed tool schema carries, to the run id from the `approval_required` error. | `features/mcp/gateway`, `features/execution/runs` |
 | **Agent** | The bearer token resolves to a member and an OAuth client, and the client to an agent the member owns. | `features/identity/oauth`, `features/agent` |
 | **Tool** | Only active tools in the agent's tool set are listed or callable. Anything else is refused. | `features/tooling` |
 | **Policy** | Every active policy that applies to the agent gives an opinion on the tool and its arguments. The most restrictive one wins. | `features/policy` |
@@ -100,7 +100,7 @@ app/
     organization/  org: members, invites, groups, mapping, subscription
     platform/      admin
     agent/         agents
-    mcp/           servers, oauth (upstream sign-in), saturn (the gateway)
+    mcp/           servers, oauth (upstream sign-in), gateway (the gateway)
     policy/        policies, policy graph, model-drafted rules
     execution/     runs, approvals, activity (audit, payload keys)
     tooling/       tools, tool sets
@@ -118,14 +118,14 @@ This repo is the API. The console and the admin dashboard are separate repositor
 ### Requirements
 
 - Docker with Compose, for Postgres 16, Redis 7 and the API.
-- A Cloud KMS HMAC key and Google credentials that may sign with it. On startup the API derives tenant keys through KMS (`SATURN_KMS_KEY`) and stops if it cannot. Only the test suite runs without it, with a fixed local key.
+- A Cloud KMS HMAC key and Google credentials that may sign with it. On startup the API derives tenant keys through KMS (`GATEWAY_KMS_KEY`) and stops if it cannot. Only the test suite runs without it, with a fixed local key.
 
 ### Run
 
 ```bash
 cp .env.example .env
 # Fill in POSTGRES_PASSWORD and REDIS_PASSWORD (for example `openssl rand -hex 16`),
-# SEED_USER_EMAIL and SEED_USER_PASSWORD, and add SATURN_KMS_KEY.
+# SEED_USER_EMAIL and SEED_USER_PASSWORD, and add GATEWAY_KMS_KEY.
 docker compose up --build
 ```
 
@@ -134,7 +134,7 @@ Set `SEED_USER_EMAIL` and `SEED_USER_PASSWORD` in `.env` before the first boot. 
 - API: http://localhost:8000
 - Docs: http://localhost:8000/docs (closed on Cloud Run, or anywhere with `EXPOSE_API_DOCS=false`)
 - Health: `GET /health` answers `{"status":"ok"}` while the process is serving and checks nothing else, so a probe never fails because a dependency does. `GET /status` reports each service (API, database, and Redis when it is used); it always answers 200 and the result is in the body, reused for five seconds. `GET /status/history` returns each service's uptime per day for the last 90 days: the worker checks every service once a minute (the API through its public address) and counts the result into that day's row in `status_days`. The console's public `/status` page draws both
-- Postgres: 127.0.0.1:5433 (user `saturn`, password `POSTGRES_PASSWORD`)
+- Postgres: 127.0.0.1:5433 (user `gateway`, password `POSTGRES_PASSWORD`)
 - Redis: 127.0.0.1:6379 (password `REDIS_PASSWORD`)
 
 Postgres and Redis listen on 127.0.0.1 only. The API container runs as an unprivileged user (uid 10001), mounts the working tree and reloads on change. It applies migrations on start, unless `RUN_MIGRATIONS=false`.
@@ -149,7 +149,7 @@ TOKEN=$(curl -s -X POST localhost:8000/auth/login \
 curl -s localhost:8000/auth/me -H "Authorization: Bearer $TOKEN"
 ```
 
-The API accepts the session token as `Authorization: Bearer` or as the `saturn_session` cookie the console uses. `/auth/login` is limited to 20 attempts per address and 10 per account in 10 minutes.
+The API accepts the session token as `Authorization: Bearer` or as the `eisoptric_session` cookie the console uses. `/auth/login` is limited to 20 attempts per address and 10 per account in 10 minutes.
 
 **Admins need a passkey or TOTP first.** A platform admin, or an organization admin (`team.write`), with neither a passkey nor an authenticator app gets `403 MFA setup is required` from every route except `/auth/me`, `/auth/logout`, `/auth/mfa…`, `/auth/totp…`, `/auth/passkeys…`, `/auth/reauth…` and the health checks. Either one is enough. A passkey is added from the console (`/mfa`), because it needs a browser. An authenticator app can be set up with the session token:
 
@@ -187,7 +187,7 @@ curl -s localhost:8000/org/members -H "Authorization: Bearer $TOKEN"
 curl -s -X POST localhost:8000/org/invites \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"email":"ops@saturn.ai","name":"Ops","role":"operator"}'
+  -d '{"email":"ops@example.com","name":"Ops","role":"operator"}'
 ```
 
 The invite link is emailed to the invitee, which needs `RESEND_API_KEY` and `RESEND_FROM`; without them the invite answers 503. The response includes the one-time `token` only in local development (`IN_PROCESS_RUNTIME=true` without `K_SERVICE`). The member sets a password with `POST /auth/accept-invite`. Only organizations of kind `organization` can invite; personal accounts cannot. An organization must keep at least one admin (`team.write`).
@@ -226,9 +226,9 @@ curl -s -X POST localhost:8000/mcp-servers \
   -d '{"name":"Context7","endpoint":"https://mcp.context7.com/mcp"}'
 ```
 
-Connecting, refreshing and removing a server needs `team.write`. The endpoint must be HTTPS on port 443 with no credentials in the URL, on an approved host, and every address it resolves to must be public. A host is approved when it is in `ALLOWED_MCP_HOSTS` (`app/features/mcp/servers/services/mcp_endpoint.py`), which covers the marketplace for every organization, or when the organization's admins approved it. A server that asks for OAuth is connected with `POST /mcp-servers/oauth/start`: Saturn discovers its authorization server, registers a client when it can, and finishes at `${PUBLIC_WS_URL}/mcp-servers/oauth/callback`. GitHub (`api.githubcopilot.com`) and Google (`*.googleapis.com`) use preset OAuth apps from `SATURN_GITHUB_OAUTH_CLIENT_ID` / `_SECRET` and `SATURN_GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`. Every URL the server's metadata points to gets the same HTTPS and public-address checks. Tokens are refreshed when they expire or the server rejects them.
+Connecting, refreshing and removing a server needs `team.write`. The endpoint must be HTTPS on port 443 with no credentials in the URL, on an approved host, and every address it resolves to must be public. A host is approved when it is in `ALLOWED_MCP_HOSTS` (`app/features/mcp/servers/services/mcp_endpoint.py`), which covers the marketplace for every organization, or when the organization's admins approved it. A server that asks for OAuth is connected with `POST /mcp-servers/oauth/start`: Eisoptric discovers its authorization server, registers a client when it can, and finishes at `${PUBLIC_WS_URL}/mcp-servers/oauth/callback`. GitHub (`api.githubcopilot.com`) and Google (`*.googleapis.com`) use preset OAuth apps from `GATEWAY_GITHUB_OAUTH_CLIENT_ID` / `_SECRET` and `GATEWAY_GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`. Every URL the server's metadata points to gets the same HTTPS and public-address checks. Tokens are refreshed when they expire or the server rejects them.
 
-Admins (`team.write`) manage their organization's hosts at `/mcp-servers/allowed-hosts`. `GET` lists them, with how many connections use each, and also returns Saturn's own list (`team.read` is enough). `POST {"host": "mcp.example.com"}` takes a bare host or an HTTPS URL. It needs a sign-in from the last 10 minutes and refuses IP addresses, wildcards, internal names (`localhost`, `.internal`, `.local` and the like) and names that resolve to a non-public address. An organization can approve up to 50 hosts. `DELETE /mcp-servers/allowed-hosts/{id}` removes one. Every check reads the organization's list again, so a removed host stops connects, refreshes and tool calls at once. Adding and removing a host are recorded in the change log (`mcp_host_added`, `mcp_host_removed`).
+Admins (`team.write`) manage their organization's hosts at `/mcp-servers/allowed-hosts`. `GET` lists them, with how many connections use each, and also returns Eisoptric's own list (`team.read` is enough). `POST {"host": "mcp.example.com"}` takes a bare host or an HTTPS URL. It needs a sign-in from the last 10 minutes and refuses IP addresses, wildcards, internal names (`localhost`, `.internal`, `.local` and the like) and names that resolve to a non-public address. An organization can approve up to 50 hosts. `DELETE /mcp-servers/allowed-hosts/{id}` removes one. Every check reads the organization's list again, so a removed host stops connects, refreshes and tool calls at once. Adding and removing a host are recorded in the change log (`mcp_host_added`, `mcp_host_removed`).
 
 Discovered tools appear under `/tools`. Group them with `/tool-sets` and assign a tool set to each agent.
 
@@ -259,17 +259,17 @@ Rules the code enforces:
 - **One vote per member.** Only active members of the required groups may vote. Without an approval policy, the requester cannot approve their own request when another approver exists.
 - **Bound to the call.** Before running, the arguments are checked against the approved digest and the policy is evaluated again. Changed arguments, a changed policy version or a changed approval policy invalidate the approval (`409`). A policy that now denies rejects it.
 - **At most once.** Approval moves out of pending with a conditional update, and execution is claimed and committed before the upstream call. If something fails after the upstream ran, the outcome is recorded as uncertain and not retried automatically.
-- **Expiry.** A worker in the API process (`SATURN_EMBED_WORKER`) checks every 5 seconds, expires due approvals and delivers webhooks.
+- **Expiry.** A worker in the API process (`GATEWAY_EMBED_WORKER`) checks every 5 seconds, expires due approvals and delivers webhooks.
 
-Reviewers use `GET /approvals` and `POST /approvals/{id}/approve`, `/reject` or `/cancel`. The agent learns the outcome from a webhook or by calling the same tool again with the same arguments and `saturnRunId`.
+Reviewers use `GET /approvals` and `POST /approvals/{id}/approve`, `/reject` or `/cancel`. The agent learns the outcome from a webhook or by calling the same tool again with the same arguments and `gatewayRunId`.
 
 ## Billing
 
-Saturn is free. Every plan (`free`, `pro`, `team`, `enterprise`) has every feature, and every plan in the catalog is priced at 0.00. The plan names and checks remain so that stored plans keep parsing. `GET /org/subscription` reports an organization's plan. `GET /payments` is reserved for Stripe and returns an empty list; it does not charge or store anything.
+Eisoptric is free. Every plan (`free`, `pro`, `team`, `enterprise`) has every feature, and every plan in the catalog is priced at 0.00. The plan names and checks remain so that stored plans keep parsing. `GET /org/subscription` reports an organization's plan. `GET /payments` is reserved for Stripe and returns an empty list; it does not charge or store anything.
 
 Agent wallets and x402 payments have been removed (migration `039_drop_wallets_x402`).
 
-Donations go through [GitHub Sponsors](https://github.com/sponsors/Saturn-Technology-Project).
+Donations go through [GitHub Sponsors](https://github.com/sponsors/eisoptric).
 
 ## Configuration
 
@@ -277,7 +277,7 @@ Settings come from the environment (or `.env`); see `.env.example`. App settings
 
 | Variable | Default | Effect |
 |---|---|---|
-| `DATABASE_URL` | `postgresql+asyncpg://saturn:saturn@localhost:5432/saturn` | Database. Compose sets it from `POSTGRES_PASSWORD`. |
+| `DATABASE_URL` | `postgresql+asyncpg://gateway:gateway@localhost:5432/gateway` | Database. Compose sets it from `POSTGRES_PASSWORD`. |
 | `REDIS_URL` | `redis://localhost:6379/0` | Rate limits and MCP sessions. Compose sets it from `REDIS_PASSWORD`. |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | `5` / `10` | Connections each process keeps, and how many more it may open under load. Instances × the sum must stay under the database's connection limit. |
 | `DB_POOL_TIMEOUT` | `10` | Seconds a request waits for a free connection before it fails |
@@ -285,17 +285,17 @@ Settings come from the environment (or `.env`); see `.env.example`. App settings
 | `DB_COMMAND_TIMEOUT` | `60` | Seconds one statement may run. `0` turns the limit off. |
 | `LOG_LEVEL` | `INFO` | Lowest level written to stdout |
 | `LOG_FORMAT` | `json` on Cloud Run, `text` elsewhere | One JSON object per line with `severity`, `request_id` and the Cloud Trace id, or plain text. Each request is logged once with method, path, status and duration; the query string is never logged. |
-| `DEFAULT_ORG_ID` | `org_saturn` | ID of the bootstrap organization |
+| `DEFAULT_ORG_ID` | `org_default` | ID of the bootstrap organization |
 | `DEFAULT_ACTOR_ID` | `user_operator` | ID of the bootstrap platform admin |
 | `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` | empty | Create the platform admin on first boot; empty skips seeding. On Cloud Run the password must be 16 characters or more. |
 | `SEED_USER_NAME` | `Admin` | Its display name |
 | `SKIP_DB_BOOTSTRAP` | `false` | `true` skips seeding and the startup database work |
 | `SESSION_TTL_DAYS` | `7` | Session lifetime; a session also ends after 24 hours without a request |
-| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://dashboard.saturn-core.com` | Allowed browser origins, also trusted for cookie requests and passkeys |
+| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://dashboard.eisoptric.com` | Allowed browser origins, also trusted for cookie requests and passkeys |
 | `IN_PROCESS_RUNTIME` | `false` | Local development and tests only: executes runs in process, keeps rate limits and MCP sessions in memory, returns invite tokens |
 | `POLICY_DEFAULT_DENY` | `true` | Deny a call when no policy applies |
-| `SATURN_EMBED_WORKER` | `true` | Run the approval-expiry and webhook worker in the API process |
-| `SATURN_SECRET_PROJECT` | empty | Google Cloud project for Secret Manager; empty keeps sealed secrets in the database |
+| `GATEWAY_EMBED_WORKER` | `true` | Run the approval-expiry and webhook worker in the API process |
+| `GATEWAY_SECRET_PROJECT` | empty | Google Cloud project for Secret Manager; empty keeps sealed secrets in the database |
 | `RESEND_API_KEY` / `RESEND_FROM` | empty | Email delivery for invites, codes and notices |
 | `POLICY_LLM_BASE_URL` / `POLICY_LLM_API_KEY` / `POLICY_LLM_MODEL` | empty | OpenAI-compatible `/chat/completions` endpoint for drafted policy rules |
 | `LEGACY_PASSWORD_UNTIL` | empty | ISO date until which legacy (pre-argon2) passwords still work. Empty means they never do. While it is in the future, every failed sign-in also sends the legacy proofs, the raw password included, so set it only for a deployment that still has accounts from before 2026-10-16 |
@@ -304,17 +304,17 @@ Read directly from the process environment:
 
 | Variable | Default | Effect |
 |---|---|---|
-| `SATURN_KMS_KEY` | none, required | Full `…/cryptoKeyVersions/N` name of the Cloud KMS MAC key that tenant keys are derived from |
+| `GATEWAY_KMS_KEY` | none, required | Full `…/cryptoKeyVersions/N` name of the Cloud KMS MAC key that tenant keys are derived from |
 | `PUBLIC_WS_URL` | the request's base URL locally; required on Cloud Run | Public origin for OAuth metadata, links and callbacks (`wss://` and `ws://` map to `https://` and `http://`) |
-| `SATURN_GITHUB_OAUTH_CLIENT_ID` / `_SECRET` | unset | OAuth app for GitHub's MCP server |
-| `SATURN_GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | unset | OAuth client for Google's MCP servers |
+| `GATEWAY_GITHUB_OAUTH_CLIENT_ID` / `_SECRET` | unset | OAuth app for GitHub's MCP server |
+| `GATEWAY_GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | unset | OAuth client for Google's MCP servers |
 | `ORIGIN_AUTH_SECRET` | unset | Shared secret every request except `/health` must carry; required on Cloud Run |
 | `ORIGIN_AUTH_SECRET_PREVIOUS` | unset | Also accepted during a rotation |
-| `CONSOLE_PROXY_SECRET` | unset | Shared with the console; with it the API keys rate limits on the browser address the console forwards (`X-Saturn-Client-IP`) |
+| `CONSOLE_PROXY_SECRET` | unset | Shared with the console; with it the API keys rate limits on the browser address the console forwards (`X-Eisoptric-Client-IP`) |
 | `CONSOLE_PROXY_SECRET_PREVIOUS` | unset | Also accepted during a rotation |
 | `MCP_OAUTH_COOKIE_DOMAIN` | derived | Domain for the cookie that binds an MCP sign-in to the browser that started it; by default the parent domain the console and API share |
-| `SATURN_REQUIRE_BOUND_SECRETS` | unset | `true` refuses vault values sealed before they were bound to their entry (`pq2.`); set it after a reseal |
-| `ORIGIN_AUTH_HEADER` | `X-Saturn-Origin-Auth` | Header that carries it |
+| `GATEWAY_REQUIRE_BOUND_SECRETS` | unset | `true` refuses vault values sealed before they were bound to their entry (`pq2.`); set it after a reseal |
+| `ORIGIN_AUTH_HEADER` | `X-Eisoptric-Origin-Auth` | Header that carries it |
 | `EXPOSE_API_DOCS` | `true` | `false` closes `/docs`, `/redoc` and `/openapi.json`; always closed on Cloud Run |
 | `K_SERVICE` | set by Cloud Run | Marks production: docs closed, origin auth and `PUBLIC_WS_URL` required, cookies always `Secure`, no invite tokens in responses |
 
@@ -338,7 +338,7 @@ This section says what the code does. [`infra/gcp/README.md`](infra/gcp/README.m
 
 ### Credential vault
 
-Credentials and upstream OAuth tokens are sealed with ML-KEM-1024 and AES-256-GCM. Each organization, and each user for personal secrets, has its own key, derived from a MAC computed by Cloud KMS over a labeled string. The root key never leaves KMS, one tenant's key does not open another's ciphertext, and a copy of the database or of the process does not contain the root. Sealed secrets live in the database, or in Secret Manager under per-tenant hashed names when `SATURN_SECRET_PROJECT` is set. `GET /org/credentials/secrets` always answers 403: secrets go in, they do not come out.
+Credentials and upstream OAuth tokens are sealed with ML-KEM-1024 and AES-256-GCM. Each organization, and each user for personal secrets, has its own key, derived from a MAC computed by Cloud KMS over a labeled string. The root key never leaves KMS, one tenant's key does not open another's ciphertext, and a copy of the database or of the process does not contain the root. Sealed secrets live in the database, or in Secret Manager under per-tenant hashed names when `GATEWAY_SECRET_PROJECT` is set. `GET /org/credentials/secrets` always answers 403: secrets go in, they do not come out.
 
 ### Audit content
 
@@ -421,7 +421,7 @@ These are known as of [0.1.0](CHANGELOG.md) and not yet fixed.
 
 - `infra/gcp/split-deploy-identities.sh` grants each repository's deployer `roles/run.developer` on the whole project, so either pipeline can change the other's Cloud Run resources. To prevent that, scope the grant to each service and to the migrate job.
 - `infra/gcp/rotate-db-password.sh` has only been run against stand-in commands, never against a second Cloud SQL instance.
-- With no load balancer in front of Cloud Run, `ORIGIN_AUTH_SECRET` is what keeps clients off the `*.run.app` URL, and `REQUIRE_HARDENED_DEPLOY` stays off.
+- On Cloudflare's free plan nothing sits between Cloudflare and Cloud Run, so the `*.run.app` URLs are public and `ORIGIN_AUTH_SECRET` alone keeps clients off them. Until it is rotated, a leaked value lets anyone bypass Cloudflare's rules (see [Ingress](infra/gcp/README.md#ingress-cloudflare-on-the-free-plan)).
 - The outside uptime check is a Cloud Monitoring check that `infra/gcp/uptime-checks.sh` creates (see [Uptime checks from Cloud Monitoring](infra/gcp/README.md#uptime-checks-from-cloud-monitoring)). The script has only been run against stand-in commands, and that Cloudflare's Bot Fight Mode lets Google's probes through is inferred from the worker's own checks, not yet seen.
 - Tests run on SQLite by default, which does not check parameter types and takes no row locks. Changes to raw SQL, migrations or locking also need a run against PostgreSQL.
 

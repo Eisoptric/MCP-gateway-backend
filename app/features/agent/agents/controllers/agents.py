@@ -24,7 +24,7 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 
 def _recent_mcp_client(agent) -> bool:
-    if str((agent.settings or {}).get("origin") or "") != "saturn_mcp":
+    if str((agent.settings or {}).get("origin") or "") != "gateway_mcp":
         return False
     seen = agent.last_seen_at
     if seen is None:
@@ -96,7 +96,7 @@ def serialize_agent(agent, pushed: bool | None = None, registration: dict[str, s
         model=agent.model,
         organization_id=agent.organization_id,
         connected=_recent_mcp_client(agent),
-        enrolled=str((agent.settings or {}).get("origin") or "") == "saturn_mcp",
+        enrolled=str((agent.settings or {}).get("origin") or "") == "gateway_mcp",
         runtime_id=agent.runtime_id,
         last_seen_at=agent.last_seen_at,
         settings=public_settings(agent),

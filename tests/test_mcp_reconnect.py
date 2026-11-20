@@ -74,7 +74,7 @@ async def test_claude_reconnect_reuses_the_client_and_the_agent(client):
     assert assigned.status_code == 201, assigned.text
     saved = await client.patch(f"/agents/{agent_id}", json={"tool_set_id": assigned.json()["id"]})
     assert saved.status_code == 200, saved.text
-    from app.features.mcp.saturn.services.mcp_sessions import mcp_sessions
+    from app.features.mcp.gateway.services.mcp_sessions import mcp_sessions
 
     record = await mcp_sessions.get(session_id, (await client.get("/auth/me")).json()["id"], again[2])
     assert record is not None
@@ -155,7 +155,7 @@ async def test_another_app_with_the_same_name_gets_its_own_empty_agent(
     ["_lock_user", "_insert_client_agent"],
 )
 async def test_two_initializes_at_once_share_one_agent(client, monkeypatch, step):
-    from app.features.mcp.saturn.services.saturn_mcp import SaturnMcp
+    from app.features.mcp.gateway.services.gateway_mcp import GatewayMcp
 
     access, _refresh, client_id = await oauth_tokens(client, "Claude")
     initialize = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "Claude"}}}
@@ -167,8 +167,8 @@ async def test_two_initializes_at_once_share_one_agent(client, monkeypatch, step
         async def unlocked(self, *args):
             return None
 
-        monkeypatch.setattr(SaturnMcp, "_lock_user", unlocked)
-    real = getattr(SaturnMcp, step)
+        monkeypatch.setattr(GatewayMcp, "_lock_user", unlocked)
+    real = getattr(GatewayMcp, step)
     inner: list = []
 
     async def raced(self, *args):
@@ -179,7 +179,7 @@ async def test_two_initializes_at_once_share_one_agent(client, monkeypatch, step
             inner[0] = await client.post("/mcp", headers=headers, json=initialize)
         return await real(self, *args)
 
-    monkeypatch.setattr(SaturnMcp, step, raced)
+    monkeypatch.setattr(GatewayMcp, step, raced)
     outer = await client.post("/mcp", headers=headers, json=initialize)
 
     assert inner[0].status_code == 200, inner[0].text
@@ -189,7 +189,7 @@ async def test_two_initializes_at_once_share_one_agent(client, monkeypatch, step
     assert len(agents) == 1
     assert agents[0]["client_id"] == client_id
     # The request that lost the race is bound to the winner's agent rather than to none.
-    from app.features.mcp.saturn.services.mcp_sessions import mcp_sessions
+    from app.features.mcp.gateway.services.mcp_sessions import mcp_sessions
 
     me = (await client.get("/auth/me")).json()["id"]
     record = await mcp_sessions.get(outer.headers["mcp-session-id"], me, client_id)
@@ -228,7 +228,7 @@ class _SharedRedis:
 
 @pytest.mark.asyncio
 async def test_an_old_stream_ending_does_not_detach_the_new_one():
-    from app.features.mcp.saturn.services.mcp_sessions import LIST_CHANGED, McpSessionHub
+    from app.features.mcp.gateway.services.mcp_sessions import LIST_CHANGED, McpSessionHub
 
     hub = McpSessionHub()
     hub._redis = _SharedRedis(hub)
@@ -255,7 +255,7 @@ async def test_an_old_stream_ending_does_not_detach_the_new_one():
 
 @pytest.mark.asyncio
 async def test_without_redis_a_finished_stream_keeps_the_session():
-    from app.features.mcp.saturn.services.mcp_sessions import McpSessionHub
+    from app.features.mcp.gateway.services.mcp_sessions import McpSessionHub
 
     hub = McpSessionHub()
     record = await hub.open("s1", "user_1", "agent_1", "client_1")
@@ -269,7 +269,7 @@ async def test_without_redis_a_finished_stream_keeps_the_session():
 async def test_a_notice_reaches_only_the_newest_stream(redis):
     import asyncio
 
-    from app.features.mcp.saturn.services.mcp_sessions import LIST_CHANGED, McpSessionHub
+    from app.features.mcp.gateway.services.mcp_sessions import LIST_CHANGED, McpSessionHub
 
     hub = McpSessionHub()
     if redis:
@@ -302,7 +302,7 @@ async def test_a_notice_reaches_only_the_newest_stream(redis):
 
 @pytest.mark.asyncio
 async def test_a_notice_sent_before_a_reconnect_reaches_the_new_stream():
-    from app.features.mcp.saturn.services.mcp_sessions import LIST_CHANGED, McpSessionHub
+    from app.features.mcp.gateway.services.mcp_sessions import LIST_CHANGED, McpSessionHub
 
     hub = McpSessionHub()
     record = await hub.open("s1", "user_1", "agent_1", "client_1")
@@ -332,13 +332,13 @@ def _gateway_agents(agents: list[dict]) -> list[dict]:
     ids=["different-name-hits-the-limit", "same-name-reuses-the-agent"],
 )
 async def test_initializes_at_once_cannot_pass_the_agent_limit(client, monkeypatch, other_name, refused):
-    from app.features.mcp.saturn.services import saturn_mcp as service
+    from app.features.mcp.gateway.services import gateway_mcp as service
 
     access, _refresh, _client_id = await oauth_tokens(client, "Claude")
     assert (await _initialize(client, access, "Claude")).status_code == 200
     monkeypatch.setattr(service, "MAX_AGENTS_PER_USER", 2)
 
-    real = service.SaturnMcp._lock_user
+    real = service.GatewayMcp._lock_user
     inner: list = []
 
     async def raced(self, *args):
@@ -349,7 +349,7 @@ async def test_initializes_at_once_cannot_pass_the_agent_limit(client, monkeypat
             inner[0] = await _initialize(client, access, other_name)
         return await real(self, *args)
 
-    monkeypatch.setattr(service.SaturnMcp, "_lock_user", raced)
+    monkeypatch.setattr(service.GatewayMcp, "_lock_user", raced)
     outer = await _initialize(client, access, "Cursor")
 
     assert inner[0].status_code == 200 and "result" in inner[0].json(), inner[0].text

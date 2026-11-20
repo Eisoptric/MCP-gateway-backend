@@ -35,7 +35,7 @@ from app.features.organization.org.services.plans import profile_identity, suspe
 from app.models import Agent, Policy, ToolSet, ToolSetItem
 
 router = APIRouter(tags=["oauth"])
-COOKIE = "saturn_oauth"
+COOKIE = "eisoptric_oauth"
 _ARGON2 = Path(__file__).resolve().parents[1] / "static" / "argon2.umd.min.js"
 _ARGON2_BYTES: bytes | None = None
 _SESSION_PURPOSE = "oauth"
@@ -188,8 +188,8 @@ def _redirect(uri: str, **params: str) -> RedirectResponse:
 
 def _legal_links(locale: str) -> tuple[str, str]:
     if is_english(locale):
-        return "https://saturn.technology/terms", "https://saturn.technology/privacy"
-    return "https://saturn.technology/zh/terms", "https://saturn.technology/zh/privacy"
+        return "https://eisoptric.com/terms", "https://eisoptric.com/privacy"
+    return "https://eisoptric.com/zh/terms", "https://eisoptric.com/zh/privacy"
 
 
 async def _consent_scope(session, user, client_id: str) -> dict:
@@ -198,7 +198,7 @@ async def _consent_scope(session, user, client_id: str) -> dict:
         (
             item
             for item in agents.scalars()
-            if (item.settings or {}).get("origin") == "saturn_mcp"
+            if (item.settings or {}).get("origin") == "gateway_mcp"
             and (item.settings or {}).get("client_id") == client_id
         ),
         None,
@@ -265,18 +265,18 @@ def _consent_body(locale: str, client_name: str, client_id: str, identity: str, 
             if scope["approval_tools"]:
                 approval_detail += " Some tools in this set are marked as requiring approval."
             access = f"""<div class="card"><strong>Set: {escape(set_label)}</strong><p>{escape(set_detail)}</p></div>
-        <div class="card"><strong>Policy: {escape(policy_label)}</strong><p>Saturn checks permission rules, denials, and approval requirements before a tool runs.</p></div>
+        <div class="card"><strong>Policy: {escape(policy_label)}</strong><p>Eisoptric checks permission rules, denials, and approval requirements before a tool runs.</p></div>
         <div class="card"><strong>Approval required</strong><p>{escape(approval_detail)}</p></div>"""
         else:
             access = """<div class="card"><strong>Connection only</strong><p>This first authorization does not include a set or a policy. After the agent appears in the console, assign the tools it may use and the policy that applies. Until a set is assigned, this agent cannot call tools.</p></div>"""
-        return f"""<p class="kicker">Connect to Saturn</p>
+        return f"""<p class="kicker">Connect to Eisoptric</p>
         <h1>Agent authorization request</h1>
         <h2>Requesting agent</h2>
         <div class="card"><strong>{escape(client_name)}</strong><p>Name supplied by the agent developer. Client {escape(client_id)}</p><p>After you decide, you return to <code>{escape(destination)}</code>. If you do not recognize it, deny.</p></div>
         <h2>Access requested</h2>
         {access}
         <h2>Before you connect</h2>
-        <p class="note">Connecting does not grant unlimited access. Saturn checks each tool call against the granted set, the active policy, and the approval rules, and writes the call to the audit log. You can revoke this connection from the console.</p>
+        <p class="note">Connecting does not grant unlimited access. Eisoptric checks each tool call against the granted set, the active policy, and the approval rules, and writes the call to the audit log. You can revoke this connection from the console.</p>
         <p class="note">Access lasts {hours} hour for the access token and {days} days for the refresh token, or until you revoke it.</p>
         <label>Connecting as</label>
         <code>{escape(identity)}</code>
@@ -301,18 +301,18 @@ def _consent_body(locale: str, client_name: str, client_id: str, identity: str, 
         if scope["approval_tools"]:
             approval_detail += "這個 Set 裡有工具被標成需要核准。"
         access = f"""<div class="card"><strong>Set：{escape(set_label)}</strong><p>{escape(set_detail)}</p></div>
-    <div class="card"><strong>Policy：{escape(policy_label)}</strong><p>受 Saturn 的權限規則、拒絕條件與核准要求約束。</p></div>
+    <div class="card"><strong>Policy：{escape(policy_label)}</strong><p>受 Eisoptric 的權限規則、拒絕條件與核准要求約束。</p></div>
     <div class="card"><strong>需要核准</strong><p>{escape(approval_detail)}</p></div>"""
     else:
         access = """<div class="card"><strong>僅建立連線</strong><p>首次授權還沒有 Set，也還沒有套用 Policy。代理人出現在控制台後，再指定可以使用的工具與要套用的政策。在指定 Set 之前，這個代理人不能呼叫工具。</p></div>"""
-    return f"""<p class="kicker">連接 Saturn</p>
+    return f"""<p class="kicker">連接 Eisoptric</p>
     <h1>代理人授權請求</h1>
     <h2>申請連線的代理人</h2>
     <div class="card"><strong>{escape(client_name)}</strong><p>由代理人開發者提供的名稱。識別碼 {escape(client_id)}</p><p>按下後會回到 <code>{escape(destination)}</code>。如果你不認得這個網址，請拒絕。</p></div>
     <h2>要求的存取</h2>
     {access}
     <h2>連線之前</h2>
-    <p class="note">連線不代表授予無限制存取權。Saturn 會依照已授予的 Set、有效 Policy 與審批規則檢查每次工具呼叫，並寫入稽核紀錄。你可以在控制台撤銷這次連線。</p>
+    <p class="note">連線不代表授予無限制存取權。Eisoptric 會依照已授予的 Set、有效 Policy 與審批規則檢查每次工具呼叫，並寫入稽核紀錄。你可以在控制台撤銷這次連線。</p>
     <p class="note">存取權杖 {hours} 小時，重新整理權杖 {days} 天，或直到撤銷。</p>
     <label>以此身分連線</label>
     <code>{escape(identity)}</code>
@@ -401,19 +401,19 @@ async def authorize(request: Request, session: SessionDep):
     fields = _fields(request)
     client = await oauth_service.client_for(session, fields["client_id"])
     if client is None or not oauth_service.matching_redirect(client, fields["redirect_uri"]):
-        return _page("Saturn", "<h1>無法連線</h1><p>This agent is not registered, or the redirect URL does not match.</p>", 400)
+        return _page("Eisoptric", "<h1>無法連線</h1><p>This agent is not registered, or the redirect URL does not match.</p>", 400)
     if not _request_ok(fields):
         # Render instead of redirecting: a malformed request must not turn this origin into an open redirect.
-        return _page("Saturn", "<h1>無法連線</h1><p>This sign-in request is invalid. Start again from the agent.</p>", 400)
+        return _page("Eisoptric", "<h1>無法連線</h1><p>This sign-in request is invalid. Start again from the agent.</p>", 400)
     token, _csrf = _cookie_parts(request)
     user = await auth_service.user_from_token(session, token, purpose=_SESSION_PURPOSE) if token else None
     if user is not None and suspended(user.organization):
-        return _page("Saturn", "<h1>無法連線</h1><p>This organization is suspended. Agents cannot connect to it.</p>", 403)
+        return _page("Eisoptric", "<h1>無法連線</h1><p>This organization is suspended. Agents cannot connect to it.</p>", 403)
     if user is None or user.organization is None:
         return _page(
             "Connect Agents",
             f"""<h1>連接代理人</h1>
-            <p>{escape(client.name)} wants to connect to Saturn MCP. Sign in to bind it to your profile.</p>
+            <p>{escape(client.name)} wants to connect to MCP Gateway. Sign in to bind it to your profile.</p>
             <form method="post" action="/oauth/login">
               {_hidden(fields)}
               <label>電子郵件 Email<input name="email" type="email" autocomplete="username" required></label>
@@ -435,12 +435,12 @@ async def authorize(request: Request, session: SessionDep):
                 const raw = input.value;
                 const email = String(form.querySelector('input[name="email"]').value || '').trim().toLowerCase();
                 const hex = (bytes) => [...bytes].map((item) => item.toString(16).padStart(2, '0')).join('');
-                const v1Bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('saturn-login-v1\\n' + raw)));
+                const v1Bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('eisoptric-login-v1\\n' + raw)));
                 const v1 = 'v1.' + hex(v1Bytes);
                 let verifier = '';
                 try {{
                   if (!window.hashwasm || typeof window.hashwasm.argon2id !== 'function') throw new Error('argon2');
-                  const salt = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('saturn-argon2-salt-v1\\n' + email)));
+                  const salt = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('eisoptric-argon2-salt-v1\\n' + email)));
                   const master = new Uint8Array(await window.hashwasm.argon2id({{
                     password: raw,
                     salt,
@@ -455,7 +455,7 @@ async def authorize(request: Request, session: SessionDep):
                     name: 'HKDF',
                     hash: 'SHA-256',
                     salt: new Uint8Array(32),
-                    info: new TextEncoder().encode('saturn-login-v2'),
+                    info: new TextEncoder().encode('eisoptric-login-v2'),
                   }}, key, 256));
                   verifier = 'v2.' + hex(bits);
                 }} catch (_) {{
@@ -520,7 +520,7 @@ def _passkey_page(fields: dict[str, str], challenge: str, *, after_email: bool =
     return _page(
         "Verify sign-in",
         f"""<h1>驗證登入</h1>
-            <p>{escape(lead)} Continue in the Saturn console to use it, then you return here.</p>
+            <p>{escape(lead)} Continue in the Eisoptric console to use it, then you return here.</p>
             {_passkey_link(fields, challenge)}""",
     )
 
@@ -579,7 +579,7 @@ def _cross_site(request: Request):
         foreign = bool(origin) and _origin_of(origin) not in _trusted_origins(request)
     if not foreign:
         return None
-    return _page("Saturn", "<h1>無法連線</h1><p>Start again from the agent to sign in.</p>", 403)
+    return _page("Eisoptric", "<h1>無法連線</h1><p>Start again from the agent to sign in.</p>", 403)
 
 
 async def _consent_redirect(session, request: Request, user, fields: dict[str, str]) -> RedirectResponse:
@@ -715,7 +715,7 @@ async def oauth_consent(request: Request, session: SessionDep):
     token, csrf = _cookie_parts(request)
     posted_csrf = form.get("csrf", "")
     if not csrf or len(csrf) != len(posted_csrf) or not secrets.compare_digest(csrf, posted_csrf):
-        return _page("Saturn", "<h1>無法連線</h1><p>Sign in again to connect this agent.</p>", 400)
+        return _page("Eisoptric", "<h1>無法連線</h1><p>Sign in again to connect this agent.</p>", 400)
     user = await auth_service.user_from_token(session, token, purpose=_SESSION_PURPOSE) if token else None
     client = await oauth_service.client_for(session, fields["client_id"]) if user is not None else None
     if (
@@ -725,7 +725,7 @@ async def oauth_consent(request: Request, session: SessionDep):
         or not oauth_service.matching_redirect(client, fields["redirect_uri"])
         or not _request_ok(fields)
     ):
-        return _page("Saturn", "<h1>無法連線</h1><p>Sign in again to connect this agent.</p>", 400)
+        return _page("Eisoptric", "<h1>無法連線</h1><p>Sign in again to connect this agent.</p>", 400)
     # One consent per sign-in. The consent session ends here whatever the decision.
     await auth_service.logout(session, token)
     if form.get("decision", "") != "allow":

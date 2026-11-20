@@ -1,4 +1,4 @@
-"""Drop app agent sync tables now owned by Saturn AI Server
+"""Drop app agent sync tables now owned by Eisoptric AI Server
 
 Revision ID: 034_drop_app_sync
 Revises: 033_password_reset_hash

@@ -1,4 +1,4 @@
-"""Store Saturn App agents apart from Saturn Cloud
+"""Store Workbench agents apart from Eisoptric Cloud
 
 Revision ID: 024_app_state
 Revises: 023_pq_vault

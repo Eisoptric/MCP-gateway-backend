@@ -7,13 +7,13 @@
 set -euo pipefail
 
 : "${GCP_PROJECT_ID:?GCP_PROJECT_ID is required}"
-GITHUB_ORG="${GITHUB_ORG:-Saturn-Technology-Project}"
+GITHUB_ORG="${GITHUB_ORG:-eisoptric}"
 REGION="${GCP_REGION:-asia-east1}"
 GAR_LOCATION="${GAR_LOCATION:-asia-east1}"
-GAR_REPOSITORY="${GAR_REPOSITORY:-saturn}"
+GAR_REPOSITORY="${GAR_REPOSITORY:-gateway}"
 POOL="${WIF_POOL:-github}"
-BACKEND_REPO="${BACKEND_REPO:-Saturn-MCP-Backend}"
-FRONTEND_REPO="${FRONTEND_REPO:-Saturn-MCP-Frontend}"
+BACKEND_REPO="${BACKEND_REPO:-MCP-gateway-backend}"
+FRONTEND_REPO="${FRONTEND_REPO:-MCP-gateway-frontend}"
 PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT_ID}" --format='value(projectNumber)')"
 
 email() { echo "$1@${GCP_PROJECT_ID}.iam.gserviceaccount.com"; }
@@ -77,26 +77,26 @@ ensure_sa github-provisioner "GitHub provisioner (Backend)"
 ensure_sa github-deployer-frontend "GitHub deployer (Frontend)"
 ensure_sa github-deployer-dashboard "GitHub deployer (Dashboard)"
 ensure_sa github-deployer-demosystem "GitHub deployer (demosystem)"
-ensure_sa saturn-frontend-runtime "Saturn frontend runtime"
-ensure_sa saturn-dashboard-runtime "Saturn dashboard runtime"
+ensure_sa gateway-frontend-runtime "Eisoptric frontend runtime"
+ensure_sa gateway-dashboard-runtime "Eisoptric dashboard runtime"
 ensure_sa acme-demo-runtime "ACME demo runtime"
 
 echo "Runtime identities: logs and metrics; the frontend also reads the origin secret"
-for runtime in saturn-frontend-runtime saturn-dashboard-runtime acme-demo-runtime; do
+for runtime in gateway-frontend-runtime gateway-dashboard-runtime acme-demo-runtime; do
   project_role "${runtime}" roles/logging.logWriter
   project_role "${runtime}" roles/monitoring.metricWriter
 done
 retry gcloud secrets add-iam-policy-binding ORIGIN_AUTH_SECRET --project "${GCP_PROJECT_ID}" \
-  --member "serviceAccount:$(email saturn-frontend-runtime)" --role roles/secretmanager.secretAccessor
+  --member "serviceAccount:$(email gateway-frontend-runtime)" --role roles/secretmanager.secretAccessor
 
 echo "Backend deployer"
 bind_repo github-deployer-backend "${BACKEND_REPO}"
 project_role github-deployer-backend roles/run.developer
 project_role github-deployer-backend roles/vpcaccess.user
 registry_writer github-deployer-backend
-act_as github-deployer-backend saturn-runtime
-service_admin github-deployer-backend saturn-backend
-service_admin github-deployer-backend saturn-worker
+act_as github-deployer-backend gateway-runtime
+service_admin github-deployer-backend gateway-backend
+service_admin github-deployer-backend gateway-worker
 
 echo "Backend provisioner"
 bind_repo github-provisioner "${BACKEND_REPO}"
@@ -114,8 +114,8 @@ deployer() {
   act_as "${name}" "${runtime}"
   service_admin "${name}" "${service}"
 }
-deployer github-deployer-frontend "${FRONTEND_REPO}" saturn-frontend-runtime saturn-frontend
-deployer github-deployer-dashboard Dashboard saturn-dashboard-runtime saturn-dashboard
+deployer github-deployer-frontend "${FRONTEND_REPO}" gateway-frontend-runtime gateway-frontend
+deployer github-deployer-dashboard Dashboard gateway-dashboard-runtime gateway-dashboard
 # demosystem pushes its image to its own registry, acme.
 deployer github-deployer-demosystem demosystem acme-demo-runtime acme-demo acme
 
@@ -126,9 +126,9 @@ Done. Point each repo at its own identities:
   gh secret set GCP_SERVICE_ACCOUNT_EMAIL -R ${GITHUB_ORG}/${BACKEND_REPO} --body $(email github-deployer-backend)
   gh secret set GCP_PROVISION_SERVICE_ACCOUNT_EMAIL -R ${GITHUB_ORG}/${BACKEND_REPO} --body $(email github-provisioner)
   gh secret set GCP_SERVICE_ACCOUNT_EMAIL -R ${GITHUB_ORG}/${FRONTEND_REPO} --body $(email github-deployer-frontend)
-  gh variable set RUNTIME_SERVICE_ACCOUNT -R ${GITHUB_ORG}/${FRONTEND_REPO} --body $(email saturn-frontend-runtime)
+  gh variable set RUNTIME_SERVICE_ACCOUNT -R ${GITHUB_ORG}/${FRONTEND_REPO} --body $(email gateway-frontend-runtime)
   gh secret set GCP_SERVICE_ACCOUNT_EMAIL -R ${GITHUB_ORG}/Dashboard --body $(email github-deployer-dashboard)
-  gh variable set RUNTIME_SERVICE_ACCOUNT -R ${GITHUB_ORG}/Dashboard --body $(email saturn-dashboard-runtime)
+  gh variable set RUNTIME_SERVICE_ACCOUNT -R ${GITHUB_ORG}/Dashboard --body $(email gateway-dashboard-runtime)
   gh secret set GCP_SERVICE_ACCOUNT -R ${GITHUB_ORG}/demosystem --body $(email github-deployer-demosystem)
   gh variable set RUNTIME_SERVICE_ACCOUNT -R ${GITHUB_ORG}/demosystem --body $(email acme-demo-runtime)
 

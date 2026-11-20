@@ -119,7 +119,7 @@ async def test_removing_a_host_stops_calls_to_servers_on_it(client, monkeypatch)
         return {"content": [{"type": "text", "text": "ok"}]}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     host_id = (await client.post("/mcp-servers/allowed-hosts", json={"host": CUSTOM})).json()["id"]
     connected = await client.post(
         "/mcp-servers", json={"name": "Example", "endpoint": f"https://{CUSTOM}/mcp", "authorization": "key-1"}
@@ -210,12 +210,12 @@ async def test_an_organization_can_approve_at_most_the_limit(client, monkeypatch
 
 
 async def test_only_admins_manage_hosts(client):
-    invited = await client.post("/org/invites", json={"email": "ops@saturn.ai", "name": "Ops", "role": "operator"})
+    invited = await client.post("/org/invites", json={"email": "ops@example.com", "name": "Ops", "role": "operator"})
     assert invited.status_code == 201, invited.text
     accepted = await client.post("/auth/accept-invite", json={"token": invited.json()["token"], "password": "password1"})
     assert accepted.status_code == 200, accepted.text
     admin = client.headers["Authorization"]
-    login = await client.post("/auth/login", json={"email": "ops@saturn.ai", "password": "password1"})
+    login = await client.post("/auth/login", json={"email": "ops@example.com", "password": "password1"})
     assert login.status_code == 200, login.text
     client.headers["Authorization"] = f"Bearer {login.json()['token']}"
     try:

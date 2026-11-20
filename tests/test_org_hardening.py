@@ -55,7 +55,7 @@ def test_local_dev_mode_requires_in_process_runtime_and_no_cloud_run(monkeypatch
 
     monkeypatch.delenv("K_SERVICE", raising=False)
     assert runtime.local_dev_mode() is True  # tests run with IN_PROCESS_RUNTIME=true
-    monkeypatch.setenv("K_SERVICE", "saturn-api")
+    monkeypatch.setenv("K_SERVICE", "gateway-api")
     assert runtime.local_dev_mode() is False
 
 
@@ -140,7 +140,7 @@ async def test_invites_do_not_reveal_accounts_in_other_orgs(client, monkeypatch)
     # Only the address without an account is emailed; nothing reaches the other org's user.
     assert [item[0] for item in sent["invites"]] == ["nobody@victim.test"]
 
-    member = await client.post("/org/invites", json={"email": "rick@saturn.ai", "name": "Rick", "role": "viewer"})
+    member = await client.post("/org/invites", json={"email": "rick@example.com", "name": "Rick", "role": "viewer"})
     pending = await client.post("/org/invites", json={"email": "nobody@victim.test", "name": "Again", "role": "viewer"})
     assert member.status_code == pending.status_code == 409
     assert member.json()["detail"] == pending.json()["detail"]
@@ -236,14 +236,14 @@ async def test_dev_admin_passwords_keep_the_minimum_length(client):
 
 
 async def test_subscription_and_pay_require_team_write(client):
-    viewer = await _member(client, "billing-viewer@saturn.ai")
+    viewer = await _member(client, "billing-viewer@example.com")
     assert (await client.get("/org/subscription", headers=viewer)).status_code == 403
     assert (await client.post("/org/subscription/invoices/inv_x/pay", headers=viewer)).status_code == 403
 
 
 async def test_pay_refuses_amounts_without_a_payment_processor(client):
     async def stage(session):
-        org = await session.get(Organization, "org_saturn")
+        org = await session.get(Organization, "org_default")
         org.billing = {
             "payment": {"brand": "visa", "last4": "4242", "exp": "12/30"},
             "invoices": [
@@ -332,8 +332,8 @@ async def test_request_size_limits(client):
 
 
 async def test_list_endpoints_page_without_changing_shape(client):
-    await _member(client, "page-one@saturn.ai")
-    await _member(client, "page-two@saturn.ai")
+    await _member(client, "page-one@example.com")
+    await _member(client, "page-two@example.com")
     everyone = (await client.get("/org/members")).json()
     assert isinstance(everyone, list) and len(everyone) >= 3
     first = (await client.get("/org/members?limit=1")).json()
@@ -352,7 +352,7 @@ async def test_list_endpoints_page_without_changing_shape(client):
 
 
 async def test_revoked_mcp_servers_stay_revoked(client):
-    headers = await _member(client, "revoked@saturn.ai", role="operator")
+    headers = await _member(client, "revoked@example.com", role="operator")
     me = (await client.get("/org", headers=headers)).json()["me"]
     assert set(me["mcp_server_ids"]) == {"mcp_billing", "mcp_crm", "mcp_email"}
     revoked = await client.patch(f"/org/members/{me['id']}", json={"mcp_server_ids": []})
@@ -392,7 +392,7 @@ async def test_demotion_takes_the_lock_before_counting_admins(client, monkeypatc
     monkeypatch.setattr(member_service, "_lock_org_employees", lock)
     monkeypatch.setattr(member_service, "_admin_count", count)
     members = (await client.get("/org/members")).json()
-    admin = next(member for member in members if member["email"] == "rick@saturn.ai")
+    admin = next(member for member in members if member["email"] == "rick@example.com")
     refused = await client.patch(f"/org/members/{admin['id']}", json={"role": "viewer"})
     assert refused.status_code == 409
     assert calls == ["lock", "count"]

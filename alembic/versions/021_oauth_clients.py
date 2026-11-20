@@ -1,4 +1,4 @@
-"""OAuth clients that agents use to register with Saturn MCP
+"""OAuth clients that agents use to register with MCP Gateway
 
 Revision ID: 021_oauth_clients
 Revises: 020_user_app_mcp

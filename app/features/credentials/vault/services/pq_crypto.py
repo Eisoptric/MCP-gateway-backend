@@ -28,7 +28,7 @@ _LEGACY_PREFIX = "pq1."
 # it belongs to) authenticated as AES-GCM associated data. A value moved to another entry no longer
 # opens there.
 _BOUND_PREFIX = "pq3."
-_AAD_LABEL = b"saturn-pq3\n"
+_AAD_LABEL = b"eisoptric-pq3\n"
 
 
 class SecretNeedsReconnect(Exception):
@@ -50,12 +50,12 @@ class KeyUnavailable(Exception):
         super().__init__("The key service is unavailable")
 
 
-_INFO_AES = b"saturn-credential-aes-256-gcm-v1"
+_INFO_AES = b"eisoptric-credential-aes-256-gcm-v1"
 # Full cryptoKeyVersion resource name, for example .../cryptoKeys/kem-root/cryptoKeyVersions/N.
-# Rotation creates a new version and points SATURN_KMS_KEY at it. Existing ciphertext stays
+# Rotation creates a new version and points GATEWAY_KMS_KEY at it. Existing ciphertext stays
 # readable only by the version that produced it, so a rotation also rewraps each secret:
 # open with the old version, then seal again after the setting changes.
-_KMS_ENV = "SATURN_KMS_KEY"
+_KMS_ENV = "GATEWAY_KMS_KEY"
 _CONTENT_TTL_SECONDS = 300.0
 # warm_content_key renews a key this long before it expires, so one request never outlives it.
 _WARM_MARGIN_SECONDS = 60.0
@@ -102,13 +102,13 @@ def _mac(data: bytes) -> bytes:
 def require_root() -> None:
     if _root is not None:
         return
-    _mac(b"saturn-kms-probe")
+    _mac(b"eisoptric-kms-probe")
 
 
 def mlkem_seed(organization_id: str, user_id: str = "") -> bytes:
     if not organization_id:
         raise RuntimeError("organization id is required")
-    label = f"saturn-mlkem-v1\n{organization_id}\n{user_id}\n".encode()
+    label = f"eisoptric-mlkem-v1\n{organization_id}\n{user_id}\n".encode()
     return _mac(label + b"0") + _mac(label + b"1")
 
 
@@ -133,7 +133,7 @@ def content_key(organization_id: str) -> bytes:
 
 
 def _derive_content_key(organization_id: str) -> bytes:
-    value = _mac(f"saturn-org-content-v2\n{organization_id}".encode())
+    value = _mac(f"eisoptric-org-content-v2\n{organization_id}".encode())
     with _cache_lock:
         _content_keys[organization_id] = (time.monotonic() + _CONTENT_TTL_SECONDS, value)
     return value
@@ -196,8 +196,8 @@ def join_bound(context: str, blob: str) -> str:
 
 
 def unbound_secrets_allowed() -> bool:
-    """pq2 values carry no context. Accepted until SATURN_REQUIRE_BOUND_SECRETS is set after a reseal."""
-    return os.environ.get("SATURN_REQUIRE_BOUND_SECRETS", "").strip().lower() not in {"1", "true", "yes"}
+    """pq2 values carry no context. Accepted until GATEWAY_REQUIRE_BOUND_SECRETS is set after a reseal."""
+    return os.environ.get("GATEWAY_REQUIRE_BOUND_SECRETS", "").strip().lower() not in {"1", "true", "yes"}
 
 
 def _private(organization_id: str, user_id: str) -> MLKEM1024PrivateKey:

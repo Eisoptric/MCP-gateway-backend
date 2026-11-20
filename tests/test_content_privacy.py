@@ -25,7 +25,7 @@ def test_only_policy_fields_stay_visible():
             "raw_request": {"method": "tools/call"},
             "policy_fields": policy_fields(_Rule()),
             "reason": "Amount exceeds $1,000",
-            "source": "saturn_mcp",
+            "source": "gateway_mcp",
         },
     )
     assert sealed is not None
@@ -52,7 +52,7 @@ async def test_activity_and_admin_do_not_return_sealed_tool_content(client, monk
         return {"content": [{"type": "text", "text": "ok"}], "echo": arguments}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     connected = await client.post(
         "/mcp-servers",
         json={"name": "GitHub", "endpoint": "https://api.githubcopilot.com/mcp", "authorization": "token-1"},
@@ -70,8 +70,8 @@ async def test_activity_and_admin_do_not_return_sealed_tool_content(client, monk
     await client.patch(f"/agents/{agent_id}", json={"tool_set_id": created.json()["id"]})
     called_tool = await client.post(
         "/mcp",
-        headers={"Authorization": f"Bearer {access}", "X-Saturn-Agent-Id": agent_id},
-        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "saturn", "note": "secret note"}}},
+        headers={"Authorization": f"Bearer {access}", "X-Eisoptric-Agent-Id": agent_id},
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "repo.read", "arguments": {"repo": "gateway", "note": "secret note"}}},
     )
     assert called_tool.status_code == 200, called_tool.text
     activity = await client.get("/activity")

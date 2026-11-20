@@ -9,7 +9,7 @@ from starlette.responses import JSONResponse
 # Reachable without the origin secret, so a probe can tell the service is up. Each answers
 # only {"status": "ok"}. Everything else, GET /status included, needs the secret.
 EXEMPT_PATHS = {"/health", "/healthz"}
-DEFAULT_HEADER = "X-Saturn-Origin-Auth"
+DEFAULT_HEADER = "X-Eisoptric-Origin-Auth"
 
 
 def request_path(request: Request) -> str:

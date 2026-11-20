@@ -51,9 +51,9 @@ def test_missing_kms_key_refuses_to_start(monkeypatch):
 
     monkeypatch.setattr(pq_crypto, "_root", None)
     monkeypatch.setattr(pq_crypto, "_keys", {})
-    monkeypatch.delenv("SATURN_KMS_KEY", raising=False)
+    monkeypatch.delenv("GATEWAY_KMS_KEY", raising=False)
     try:
-        with pytest.raises(RuntimeError, match="SATURN_KMS_KEY"):
+        with pytest.raises(RuntimeError, match="GATEWAY_KMS_KEY"):
             pq_crypto.require_root()
     finally:
         pq_crypto.install_root(b"\x11" * 32)
@@ -110,7 +110,7 @@ def test_a_bound_value_only_opens_where_it_was_sealed_for(monkeypatch):
     # Unbound values from before still open, until the operator requires bound ones.
     legacy = seal("old", "org_a", "")
     assert open_secret(legacy, "org_a", "", "vault:mcp-server-1") == "old"
-    monkeypatch.setenv("SATURN_REQUIRE_BOUND_SECRETS", "true")
+    monkeypatch.setenv("GATEWAY_REQUIRE_BOUND_SECRETS", "true")
     with pytest.raises(SecretNeedsReconnect):
         open_secret(legacy, "org_a", "", "vault:mcp-server-1")
 

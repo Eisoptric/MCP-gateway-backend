@@ -116,7 +116,7 @@ async def test_single_approver_unchanged_policy_still_approves(client, monkeypat
     approval_id = body["error"]["data"]["approval_id"]
     approved = await client.post(f"/approvals/{approval_id}/approve", headers=_auth(people[0][1]))
     assert approved.status_code == 200, approved.text
-    resumed = await _request(client, access, agent_id, {"amount": 6}, run_id=body["error"]["data"]["saturnRunId"])
+    resumed = await _request(client, access, agent_id, {"amount": 6}, run_id=body["error"]["data"]["gatewayRunId"])
     assert resumed["result"]["tool"] == "pay.send"
     assert calls["n"] == 1
 

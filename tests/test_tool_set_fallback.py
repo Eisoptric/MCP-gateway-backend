@@ -29,7 +29,7 @@ async def _setup(client, monkeypatch, approvals: dict[str, bool]):
         return {"content": [{"type": "text", "text": "ok"}], "tool": name}
 
     monkeypatch.setattr("app.features.mcp.servers.services.mcp_connect.list_remote_tools", listed)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     connected = await client.post(
         "/mcp-servers",
         json={"name": "Notes", "endpoint": "https://api.githubcopilot.com/mcp", "authorization": "token-1"},
@@ -54,7 +54,7 @@ async def _setup(client, monkeypatch, approvals: dict[str, bool]):
 
 
 async def _call(client, access, name, run_id=""):
-    arguments = {"saturnRunId": run_id} if run_id else {}
+    arguments = {"gatewayRunId": run_id} if run_id else {}
     response = await client.post(
         "/mcp",
         headers={"Authorization": f"Bearer {access}"},
@@ -80,7 +80,7 @@ async def test_without_a_policy_the_tool_set_allows_or_holds_for_approval(client
 
     approved = await client.post(f"/approvals/{approval_id}/approve")
     assert approved.status_code == 200, approved.text
-    ran = await _call(client, access, "notes.delete", run_id=held["error"]["data"]["saturnRunId"])
+    ran = await _call(client, access, "notes.delete", run_id=held["error"]["data"]["gatewayRunId"])
     assert ran["result"]["tool"] == "notes.delete", ran
     assert sent == ["notes.read", "notes.delete"]
 
@@ -138,7 +138,7 @@ async def test_an_approved_call_does_not_run_once_the_tool_leaves_the_set(client
         f"/tool-sets/{set_id}", json={"items": [{"tool_id": ids["notes.read"], "approval": False}]}
     )
     assert removed.status_code == 200, removed.text
-    retried = await _call(client, access, "notes.delete", run_id=held["error"]["data"]["saturnRunId"])
+    retried = await _call(client, access, "notes.delete", run_id=held["error"]["data"]["gatewayRunId"])
     assert retried["error"]["message"] == "Agent is not allowed to call this tool", retried
     assert sent == []
 

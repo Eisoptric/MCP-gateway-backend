@@ -19,9 +19,9 @@ env:
   GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   GCP_REGION: ${{ vars.GCP_REGION }}
   GAR_LOCATION: ${{ vars.GAR_LOCATION }}
-  GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY || 'saturn' }}
-  CLOUD_RUN_SERVICE: ${{ vars.BACKEND_CLOUD_RUN_SERVICE || 'saturn-backend' }}
-  IMAGE_NAME: saturn-backend
+  GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY || 'gateway' }}
+  CLOUD_RUN_SERVICE: ${{ vars.BACKEND_CLOUD_RUN_SERVICE || 'gateway-backend' }}
+  IMAGE_NAME: gateway-backend
 
 jobs:
   test:
@@ -44,11 +44,9 @@ jobs:
       # Runtime identity for the services and the migration job. Unset: the
       # project's default compute service account.
       RUNTIME_SERVICE_ACCOUNT: ${{ vars.RUNTIME_SERVICE_ACCOUNT }}
-      # all | internal | internal-and-cloud-load-balancing. Unset: the API keeps its current ingress.
-      CLOUD_RUN_INGRESS: ${{ vars.CLOUD_RUN_INGRESS }}
       # 'true': run migrations once in a Cloud Run Job and start the services with RUN_MIGRATIONS=false.
       MIGRATIONS_JOB: ${{ vars.MIGRATIONS_JOB }}
-      MIGRATIONS_JOB_NAME: ${{ vars.MIGRATIONS_JOB_NAME || 'saturn-migrate' }}
+      MIGRATIONS_JOB_NAME: ${{ vars.MIGRATIONS_JOB_NAME || 'gateway-migrate' }}
       MIGRATIONS_DATABASE_URL_SECRET: ${{ vars.MIGRATIONS_DATABASE_URL_SECRET || 'DATABASE_URL' }}
       MIGRATIONS_SERVICE_ACCOUNT: ${{ vars.MIGRATIONS_SERVICE_ACCOUNT || vars.RUNTIME_SERVICE_ACCOUNT }}
       # 'true': mount SEED_USER_EMAIL / SEED_USER_PASSWORD on the API so it can create the first admin.
@@ -94,10 +92,6 @@ jobs:
           if [ "${MIGRATIONS_JOB}" != "true" ]; then
             note "MIGRATIONS_JOB is not 'true': every container migrates on start with the application's database user."
           fi
-          case "${CLOUD_RUN_INGRESS}" in
-            internal | internal-and-cloud-load-balancing) ;;
-            *) note "CLOUD_RUN_INGRESS is '${CLOUD_RUN_INGRESS:-unset}': the run.app address is reachable from the internet, so only the origin secret separates it from Cloudflare." ;;
-          esac
           if [ "${missing}" = "1" ] && [ "${REQUIRE_HARDENED_DEPLOY}" = "true" ]; then
             echo "::error::REQUIRE_HARDENED_DEPLOY is true and a hardening setting is missing. See infra/gcp/README.md."
             exit 1
@@ -150,9 +144,9 @@ jobs:
           DEFAULT_ACTOR_ID: ${{ vars.DEFAULT_ACTOR_ID }}
           SEED_USER_NAME: ${{ vars.SEED_USER_NAME }}
           SESSION_TTL_DAYS: ${{ vars.SESSION_TTL_DAYS }}
-          CORS_ORIGINS: https://dashboard.saturn-core.com
-          PUBLIC_WS_URL: https://api.saturn-core.com
-          SATURN_KMS_KEY: ${{ vars.SATURN_KMS_KEY }}
+          CORS_ORIGINS: https://dashboard.eisoptric.com
+          PUBLIC_WS_URL: https://api.eisoptric.com
+          GATEWAY_KMS_KEY: ${{ vars.GATEWAY_KMS_KEY }}
           LEGACY_PASSWORD_UNTIL: ${{ vars.LEGACY_PASSWORD_UNTIL }}
         run: |
           python3 - <<'PY'
@@ -162,14 +156,14 @@ jobs:
 
           values = {
               "EXPOSE_API_DOCS": "false",
-              "DEFAULT_ORG_ID": os.environ.get("DEFAULT_ORG_ID") or "org_saturn",
+              "DEFAULT_ORG_ID": os.environ.get("DEFAULT_ORG_ID") or "org_default",
               "DEFAULT_ACTOR_ID": os.environ.get("DEFAULT_ACTOR_ID") or "user_operator",
               "SEED_USER_NAME": os.environ.get("SEED_USER_NAME") or "Admin",
               "SESSION_TTL_DAYS": os.environ.get("SESSION_TTL_DAYS") or "7",
               "CORS_ORIGINS": os.environ["CORS_ORIGINS"],
               "PUBLIC_WS_URL": os.environ["PUBLIC_WS_URL"],
-              "SATURN_KMS_KEY": os.environ["SATURN_KMS_KEY"],
-              "SATURN_EMBED_WORKER": "false",
+              "GATEWAY_KMS_KEY": os.environ["GATEWAY_KMS_KEY"],
+              "GATEWAY_EMBED_WORKER": "false",
               # Cloud Run does not set it. Without it the request log has no trace field, so
               # Cloud Logging cannot group a request's lines or link them to Cloud Trace.
               "GOOGLE_CLOUD_PROJECT": os.environ["GCP_PROJECT_ID"],
@@ -186,7 +180,7 @@ jobs:
               "".join(f'{key}: "{value}"\n' for key, value in values.items()),
               encoding="utf-8",
           )
-          values["SATURN_EMBED_WORKER"] = "true"
+          values["GATEWAY_EMBED_WORKER"] = "true"
           Path("cloud-run.worker.env.yaml").write_text(
               "".join(f'{key}: "{value}"\n' for key, value in values.items()),
               encoding="utf-8",
@@ -203,10 +197,10 @@ jobs:
             common="${common},${REDIS_CA_PATH}=${REDIS_CA_SECRET}:latest"
           fi
           api="${common}"
-          api="${api},SATURN_GITHUB_OAUTH_CLIENT_ID=SATURN_GITHUB_OAUTH_CLIENT_ID:latest"
-          api="${api},SATURN_GITHUB_OAUTH_CLIENT_SECRET=SATURN_GITHUB_OAUTH_CLIENT_SECRET:latest"
-          api="${api},SATURN_GOOGLE_OAUTH_CLIENT_ID=SATURN_GOOGLE_OAUTH_CLIENT_ID:latest"
-          api="${api},SATURN_GOOGLE_OAUTH_CLIENT_SECRET=SATURN_GOOGLE_OAUTH_CLIENT_SECRET:latest"
+          api="${api},GATEWAY_GITHUB_OAUTH_CLIENT_ID=GATEWAY_GITHUB_OAUTH_CLIENT_ID:latest"
+          api="${api},GATEWAY_GITHUB_OAUTH_CLIENT_SECRET=GATEWAY_GITHUB_OAUTH_CLIENT_SECRET:latest"
+          api="${api},GATEWAY_GOOGLE_OAUTH_CLIENT_ID=GATEWAY_GOOGLE_OAUTH_CLIENT_ID:latest"
+          api="${api},GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET=GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET:latest"
           api="${api},RESEND_API_KEY=RESEND_API_KEY:latest,RESEND_FROM=RESEND_FROM:latest"
           api="${api},POLICY_LLM_BASE_URL=POLICY_LLM_BASE_URL:latest"
           api="${api},POLICY_LLM_API_KEY=POLICY_LLM_API_KEY:latest"
@@ -270,14 +264,9 @@ jobs:
           if [ -n "${RUNTIME_SERVICE_ACCOUNT}" ]; then
             extra+=(--service-account "${RUNTIME_SERVICE_ACCOUNT}")
           fi
-          case "${CLOUD_RUN_INGRESS}" in
-            "") ;;
-            all | internal | internal-and-cloud-load-balancing)
-              extra+=(--ingress "${CLOUD_RUN_INGRESS}") ;;
-            *)
-              echo "::error::CLOUD_RUN_INGRESS must be all, internal or internal-and-cloud-load-balancing."
-              exit 1 ;;
-          esac
+          # Cloudflare's free plan reaches the API on its public address; the origin secret that
+          # Cloudflare adds is what keeps everyone else out (infra/gcp/README.md, "Ingress").
+          extra+=(--ingress all)
           gcloud run deploy "${CLOUD_RUN_SERVICE}" \
             --project "${GCP_PROJECT_ID}" \
             --region "${GCP_REGION}" \
@@ -307,7 +296,7 @@ jobs:
           if [ -n "${RUNTIME_SERVICE_ACCOUNT}" ]; then
             extra+=(--service-account "${RUNTIME_SERVICE_ACCOUNT}")
           fi
-          gcloud run deploy saturn-worker \
+          gcloud run deploy gateway-worker \
             --project "${GCP_PROJECT_ID}" \
             --region "${GCP_REGION}" \
             --image "${IMAGE_REF}" \

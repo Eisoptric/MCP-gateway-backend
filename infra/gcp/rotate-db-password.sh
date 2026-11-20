@@ -17,12 +17,12 @@
 set -euo pipefail
 
 : "${GCP_PROJECT_ID:?GCP_PROJECT_ID is required}"
-INSTANCE="${CLOUD_SQL_INSTANCE:-saturn-pg}"
-DB_USER="${CLOUD_SQL_USER:-saturn}"
+INSTANCE="${CLOUD_SQL_INSTANCE:-gateway-pg}"
+DB_USER="${CLOUD_SQL_USER:-gateway}"
 REGION="${GCP_REGION:-asia-east1}"
 SECRET="${DATABASE_URL_SECRET:-DATABASE_URL}"
-REPO="${GITHUB_REPO:-Saturn-Technology-Project/Saturn-MCP-Backend}"
-SERVICES="${SERVICES:-saturn-backend saturn-worker}"
+REPO="${GITHUB_REPO:-eisoptric/MCP-gateway-backend}"
+SERVICES="${SERVICES:-gateway-backend gateway-worker}"
 USERS_URL="https://sqladmin.googleapis.com/v1/projects/${GCP_PROJECT_ID}/instances/${INSTANCE}/users?name=${DB_USER}"
 
 CURRENT_URL="$(gcloud secrets versions access latest --secret "${SECRET}" --project "${GCP_PROJECT_ID}")"

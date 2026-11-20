@@ -24,7 +24,7 @@ async def _code(client) -> tuple[str, str]:
     }
     await client.get("/oauth/authorize", params=query)
     signed = await client.post(
-        "/oauth/login", data={**query, "email": "rick@saturn.ai", "password": "saturn"}, follow_redirects=False
+        "/oauth/login", data={**query, "email": "rick@example.com", "password": "gateway"}, follow_redirects=False
     )
     assert signed.status_code == 303, signed.text
     consent = await client.get(signed.headers["location"])

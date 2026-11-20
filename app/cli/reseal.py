@@ -1,6 +1,6 @@
 """Re-seal every KMS-rooted value under a new KMS MAC key. This does not run on startup.
 
-Moving Saturn to a new Google Cloud project means a new Cloud KMS key, and a KMS key
+Moving Eisoptric to a new Google Cloud project means a new Cloud KMS key, and a KMS key
 cannot be exported. Everything the old key protects is opened with the old key and
 sealed again with the new one, in one transaction:
 
@@ -9,7 +9,7 @@ sealed again with the new one, in one transaction:
 - keyed approval digests (approvals.parameter_digest and the digest kept inside
   actions.arguments), recomputed from the arguments they bind.
 
-When SATURN_SECRET_PROJECT is set the vault lives in Secret Manager, not in the
+When GATEWAY_SECRET_PROJECT is set the vault lives in Secret Manager, not in the
 database. Those entries are re-sealed too, each as a new secret version. Secret
 Manager is outside the database transaction, so its writes happen last and only
 after everything opened; a run that stops part way can be repeated, because an
@@ -54,7 +54,7 @@ from app.features.credentials.vault.services.pq_crypto import (
 )
 
 S2_PREFIX = "s2."
-_DIGEST_INFO = b"saturn-approval-digest-v1\n"
+_DIGEST_INFO = b"eisoptric-approval-digest-v1\n"
 _SERVER_SEALED = "server-sealed-v1"
 
 
@@ -69,7 +69,7 @@ class Keys:
     def private(self, organization_id: str, user_id: str) -> MLKEM1024PrivateKey:
         found = self._private.get((organization_id, user_id))
         if found is None:
-            label = f"saturn-mlkem-v1\n{organization_id}\n{user_id}\n".encode()
+            label = f"eisoptric-mlkem-v1\n{organization_id}\n{user_id}\n".encode()
             found = MLKEM1024PrivateKey.from_seed_bytes(self._mac(label + b"0") + self._mac(label + b"1"))
             self._private[(organization_id, user_id)] = found
         return found
@@ -77,7 +77,7 @@ class Keys:
     def content_key(self, organization_id: str) -> bytes:
         found = self._content.get(organization_id)
         if found is None:
-            found = self._mac(f"saturn-org-content-v2\n{organization_id}".encode())
+            found = self._mac(f"eisoptric-org-content-v2\n{organization_id}".encode())
             self._content[organization_id] = found
         return found
 
@@ -148,7 +148,7 @@ class Report:
     digests_left: list[str] = field(default_factory=list)
     # Secret Manager entries the new key already opens: a previous run got that far.
     already: list[str] = field(default_factory=list)
-    # Prefix-shaped text where Saturn never writes a sealed value. Reported, never blocking:
+    # Prefix-shaped text where Eisoptric never writes a sealed value. Reported, never blocking:
     # a tenant can type "pq2.x" into a name or a prompt.
     ignored: list[str] = field(default_factory=list)
 
@@ -182,7 +182,7 @@ class Tenants:
         return list(dict.fromkeys(contexts))
 
 
-# Where Saturn writes sealed values: vault and credential *ciphertext columns, users.totp_secret,
+# Where Eisoptric writes sealed values: vault and credential *ciphertext columns, users.totp_secret,
 # and the "sealed" key of JSON arguments and payloads.
 _SEALED_FIELDS = ("totp_secret", "sealed")
 
@@ -396,7 +396,7 @@ class SecretStore:
 
 def _org_tag(organization_id: str) -> str:
     # The tag secret_vault._gcp_name puts in a sat2 name.
-    return hashlib.sha256(f"saturn-secret-org\n{organization_id}".encode()).hexdigest()[:24]
+    return hashlib.sha256(f"gateway-secret-org\n{organization_id}".encode()).hexdigest()[:24]
 
 
 def reseal_store(store: Any, old: Keys, new: Keys, tenants: Tenants, report: Report) -> list[tuple[str, str]]:
@@ -439,7 +439,7 @@ async def _run(old_key: str, new_key: str, apply: bool, allow_unopened: bool) ->
     from app.db.database import engine
 
     old, new = Keys(kms_mac(old_key)), Keys(kms_mac(new_key))
-    project = (get_settings().saturn_secret_project or "").strip()
+    project = (get_settings().gateway_secret_project or "").strip()
     async with engine.connect() as connection:
         transaction = await connection.begin()
         report = await reseal(connection, old, new, apply)

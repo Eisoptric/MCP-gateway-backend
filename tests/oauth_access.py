@@ -8,8 +8,8 @@ async def oauth_tokens(
     client,
     client_name: str,
     *,
-    email: str = "rick@saturn.ai",
-    password: str = "saturn",
+    email: str = "rick@example.com",
+    password: str = "gateway",
     redirect_uri: str = "http://127.0.0.1:8765/callback",
     redirect_uris: list[str] | None = None,
 ) -> tuple[str, str, str]:
@@ -78,8 +78,8 @@ async def oauth_access(
     client,
     client_name: str,
     *,
-    email: str = "rick@saturn.ai",
-    password: str = "saturn",
+    email: str = "rick@example.com",
+    password: str = "gateway",
 ) -> str:
     access, _refresh, _client_id = await oauth_tokens(client, client_name, email=email, password=password)
     return access

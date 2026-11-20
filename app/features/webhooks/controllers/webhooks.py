@@ -178,7 +178,7 @@ async def patch_webhook(endpoint_id: str, body: WebhookUpdate, session: SessionD
 @router.get("/webhooks/{endpoint_id}/secret")
 async def download_secret(endpoint_id: str, session: SessionDep, member: TeamWrite, _pro: ProPlan):
     secret = await reveal_secret(session, member.organization_id, endpoint_id)
-    filename = f"saturn-webhook-{endpoint_id}.txt"
+    filename = f"eisoptric-webhook-{endpoint_id}.txt"
     return Response(
         content=f"{secret}\n",
         media_type="text/plain; charset=utf-8",

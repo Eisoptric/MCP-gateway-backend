@@ -1,4 +1,4 @@
-"""Saturn Connector: org-level enrollment and catalog registration
+"""Eisoptric Connector: org-level enrollment and catalog registration
 
 Revision ID: 012_connectors
 Revises: 011_policy_module

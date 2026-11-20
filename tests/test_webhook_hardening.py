@@ -196,7 +196,7 @@ async def test_send_pins_ip_keeps_hostname_and_caps_the_body(monkeypatch):
 
     monkeypatch.setattr(httpx, "AsyncClient", client)
     code, error = await webhook_service.send_webhook(
-        "https://hooks.example.com/saturn", b"{}", {"Content-Type": "application/json"}
+        "https://hooks.example.com/gateway", b"{}", {"Content-Type": "application/json"}
     )
     assert (code, error) == (200, "")
     request = seen[0]
@@ -218,7 +218,7 @@ async def test_send_refuses_a_name_that_now_resolves_inside(monkeypatch):
     monkeypatch.setattr(
         "app.features.mcp.servers.services.mcp_endpoint.addresses_for", lambda _host, _port: ["10.0.0.5"]
     )
-    code, error = await webhook_service.send_webhook("https://hooks.example.com/saturn", b"{}", {})
+    code, error = await webhook_service.send_webhook("https://hooks.example.com/gateway", b"{}", {})
     assert (code, error) == (None, "destination not allowed")
     assert calls == []
 

@@ -49,7 +49,7 @@ async def test_each_refusal_says_why(model, caplog, code, says):
         await policy_llm._chat([{"role": "user", "content": "hi"}])
     assert refused.value.status_code == 502
     assert says in refused.value.detail
-    # The provider's text is in the log for whoever runs Saturn, with the key removed.
+    # The provider's text is in the log for whoever runs Eisoptric, with the key removed.
     assert f"HTTP {code}" in caplog.text
     assert "Incorrect API key provided" in caplog.text
     assert KEY not in caplog.text

@@ -154,7 +154,7 @@ class McpAllowedHostRead(BaseModel):
 
 class McpAllowedHostsRead(BaseModel):
     hosts: list[McpAllowedHostRead]
-    # Approved by Saturn for every organization.
+    # Approved by Eisoptric for every organization.
     builtin: list[str]
     limit: int
 

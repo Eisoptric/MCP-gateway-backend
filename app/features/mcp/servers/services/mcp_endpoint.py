@@ -127,7 +127,7 @@ def address_blocked(value: str) -> bool:
 
 
 def require_mcp_endpoint(url: str, extra_hosts: Collection[str] = ()) -> str:
-    """Check an MCP endpoint before Saturn sends anything to it.
+    """Check an MCP endpoint before Eisoptric sends anything to it.
 
     `extra_hosts` are the hosts the calling organization's admins approved (mcp_hosts.py). A host
     on neither list is refused. Every other check applies to both lists alike.

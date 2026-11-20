@@ -36,7 +36,7 @@ async def test_email_second_factor_completes_login(client, monkeypatch):
 
     blocked = await client.post(
         "/auth/login",
-        json={"email": "rick@saturn.ai", "password": "saturn"},
+        json={"email": "rick@example.com", "password": "gateway"},
     )
     assert blocked.status_code == 200, blocked.text
     body = blocked.json()
@@ -66,7 +66,7 @@ async def test_email_second_factor_completes_login(client, monkeypatch):
     assert disabled.status_code == 204
     plain = await client.post(
         "/auth/login",
-        json={"email": "rick@saturn.ai", "password": "saturn"},
+        json={"email": "rick@example.com", "password": "gateway"},
     )
     assert plain.status_code == 200, plain.text
     assert plain.json()["token"]
@@ -83,7 +83,7 @@ async def test_passkey_options_follow_the_browser_origin(client):
     assert options.status_code == 200, options.text
     body = options.json()
     assert body["rp"]["id"] == "localhost"
-    assert body["rp"]["name"] == "Saturn"
+    assert body["rp"]["name"] == "Eisoptric"
     assert body["challenge"]
     rejected = await client.post(
         "/auth/passkeys",

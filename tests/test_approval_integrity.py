@@ -77,12 +77,12 @@ async def test_the_last_vote_does_not_run_a_call_for_a_disabled_requester(client
     # A second member connects their own agent and asks.
     from tests.oauth_access import oauth_access
 
-    invited = await client.post("/org/invites", json={"email": "asker@saturn.ai", "name": "Asker", "role": "operator"})
+    invited = await client.post("/org/invites", json={"email": "asker@example.com", "name": "Asker", "role": "operator"})
     assert invited.status_code == 201, invited.text
     accepted = await client.post("/auth/accept-invite", json={"token": invited.json()["token"], "password": "password1"})
     assert accepted.status_code == 200, accepted.text
     asker = accepted.json()["user"]["employee"]["id"]
-    access = await oauth_access(client, "Asker Agent", email="asker@saturn.ai", password="password1")
+    access = await oauth_access(client, "Asker Agent", email="asker@example.com", password="password1")
     opened = await client.post(
         "/mcp", headers=_auth(access), json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
     )
@@ -112,7 +112,7 @@ async def test_an_approved_call_does_not_run_after_its_policy_changes(client, mo
     policy = await activate_created(client, created)
     body = await _request(client, access, agent_id, {"amount": 6})
     approval_id = body["error"]["data"]["approval_id"]
-    run_id = body["error"]["data"]["saturnRunId"]
+    run_id = body["error"]["data"]["gatewayRunId"]
     assert (await client.post(f"/approvals/{approval_id}/approve", headers=_auth(people[0][1]))).status_code == 200
 
     # The rule is tightened after approval and before the agent comes back.
@@ -142,7 +142,7 @@ async def test_an_approved_call_does_not_run_after_its_policy_changes(client, mo
 
 
 async def test_a_refused_member_edit_does_not_change_the_role(client):
-    invited = await client.post("/org/invites", json={"email": "kept@saturn.ai", "name": "Kept", "role": "operator"})
+    invited = await client.post("/org/invites", json={"email": "kept@example.com", "name": "Kept", "role": "operator"})
     assert invited.status_code == 201, invited.text
     accepted = await client.post("/auth/accept-invite", json={"token": invited.json()["token"], "password": "password1"})
     assert accepted.status_code == 200, accepted.text

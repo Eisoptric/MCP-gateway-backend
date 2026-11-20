@@ -19,13 +19,13 @@ def _settings(**changes):
 
 
 def test_postgres_engine_checks_connections_and_bounds_waits():
-    options = engine_options("postgresql+asyncpg://u:p@db/saturn", _settings(db_pool_size=3, db_max_overflow=4))
+    options = engine_options("postgresql+asyncpg://u:p@db/gateway", _settings(db_pool_size=3, db_max_overflow=4))
     assert options["pool_size"] == 3 and options["max_overflow"] == 4
     assert options["pool_pre_ping"] is True
     assert options["pool_timeout"] == 10.0 and options["pool_recycle"] == 1800
     assert options["connect_args"] == {"command_timeout": 60.0}
     # 0 turns the statement limit off.
-    unlimited = engine_options("postgresql+asyncpg://u:p@db/saturn", _settings(db_command_timeout=0))
+    unlimited = engine_options("postgresql+asyncpg://u:p@db/gateway", _settings(db_command_timeout=0))
     assert "connect_args" not in unlimited
 
 
@@ -51,7 +51,7 @@ async def test_no_transaction_is_open_while_the_upstream_is_called(client, monke
         return {"content": [{"type": "text", "text": "ok"}]}
 
     monkeypatch.setattr(mcp_oauth, "authorization_for", remember)
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", called)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", called)
     first = await call({"repo": "one"})
     assert seen["open"] is False
     # The request record was committed before the upstream ran, and the numbering still advances by one.
@@ -69,7 +69,7 @@ async def test_a_failed_upstream_call_still_leaves_its_request_record(client, mo
     async def broken(endpoint, tool, arguments, authorization="", **_kwargs):
         raise RuntimeError("upstream fell over")
 
-    monkeypatch.setattr("app.features.mcp.saturn.services.saturn_mcp.call_remote_tool", broken)
+    monkeypatch.setattr("app.features.mcp.gateway.services.gateway_mcp.call_remote_tool", broken)
     before = [item for item in (await client.get("/activity", params={"tool": "repo.read"})).json() if item["event"] == "tool_requested"]
     try:
         await call({"repo": "fails"})
@@ -81,7 +81,7 @@ async def test_a_failed_upstream_call_still_leaves_its_request_record(client, mo
 
 
 async def test_a_listening_stream_gives_its_connection_back_first(monkeypatch):
-    from app.features.mcp.saturn.controllers import saturn_mcp as controller
+    from app.features.mcp.gateway.controllers import gateway_mcp as controller
 
     order = []
 
@@ -103,7 +103,7 @@ async def test_a_listening_stream_gives_its_connection_back_first(monkeypatch):
     monkeypatch.setattr(controller, "_caller", caller)
     monkeypatch.setattr(controller.mcp_sessions, "get", found)
     request = SimpleNamespace(headers={"mcp-session-id": "s1"})
-    response = await controller.saturn_mcp_listen(request, Session())
+    response = await controller.gateway_mcp_listen(request, Session())
     order.append("stream returned")
     assert order == ["commit", "close", "stream returned"]
     assert response.media_type == "text/event-stream"
@@ -113,7 +113,7 @@ async def test_a_stream_that_ends_leaves_the_session_and_pings_while_silent(clie
     """The platform ends every stream at its time limit. The client reopens it with the same session."""
     import asyncio
 
-    from app.features.mcp.saturn.controllers import saturn_mcp as controller
+    from app.features.mcp.gateway.controllers import gateway_mcp as controller
     from tests.oauth_access import oauth_tokens
 
     access, _refresh_token, client_id = await oauth_tokens(client, "Stream Agent")
@@ -143,7 +143,7 @@ async def test_a_stream_that_ends_leaves_the_session_and_pings_while_silent(clie
 
     with monkeypatch.context() as patched:
         patched.setattr(controller, "_caller", caller)
-        response = await controller.saturn_mcp_listen(SimpleNamespace(headers={"mcp-session-id": session_id}), Session())
+        response = await controller.gateway_mcp_listen(SimpleNamespace(headers={"mcp-session-id": session_id}), Session())
     stream = response.body_iterator
     assert await anext(stream) == ": connected\n\n"
     assert await anext(stream) == ": ping\n\n"

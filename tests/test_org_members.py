@@ -6,7 +6,7 @@ async def test_seed_admin_has_org_access(client):
     assert me["employee"]["role"] == "admin"
 
     org = (await client.get("/org")).json()
-    assert org["organization"]["id"] == "org_saturn"
+    assert org["organization"]["id"] == "org_default"
     assert {item["id"] for item in org["catalog"]["resources"]} == {
         "agents",
         "policies",
@@ -14,7 +14,7 @@ async def test_seed_admin_has_org_access(client):
         "team",
     }
     members = (await client.get("/org/members")).json()
-    assert any(member["email"] == "rick@saturn.ai" for member in members)
+    assert any(member["email"] == "rick@example.com" for member in members)
     org = (await client.get("/org")).json()
     assert org["mcp_gateway"]["connected"] == 3
     assert org["mcp_gateway"]["total"] == 3
@@ -23,7 +23,7 @@ async def test_seed_admin_has_org_access(client):
 
 async def test_cannot_remove_last_admin(client):
     members = (await client.get("/org/members")).json()
-    admin = next(member for member in members if member["email"] == "rick@saturn.ai")
+    admin = next(member for member in members if member["email"] == "rick@example.com")
     response = await client.patch(f"/org/members/{admin['id']}", json={"role": "viewer"})
     assert response.status_code == 409
 
@@ -32,7 +32,7 @@ async def test_invite_accept_and_enforce_permissions(client):
     invited = await client.post(
         "/org/invites",
         json={
-            "email": "viewer@saturn.ai",
+            "email": "viewer@example.com",
             "name": "Viewer",
             "title": "Analyst",
             "role": "viewer",
@@ -50,7 +50,7 @@ async def test_invite_accept_and_enforce_permissions(client):
     )
     assert accepted.status_code == 200, accepted.text
     body = accepted.json()
-    assert body["user"]["email"] == "viewer@saturn.ai"
+    assert body["user"]["email"] == "viewer@example.com"
     assert body["user"]["role"] == "viewer"
     assert body["user"]["permissions"]["agents"] == "read"
     assert body["user"]["permissions"]["team"] == "none"
@@ -58,7 +58,7 @@ async def test_invite_accept_and_enforce_permissions(client):
     headers = {"Authorization": f"Bearer {body['token']}"}
     assert (await client.get("/org/members", headers=headers)).status_code == 403
     assert (await client.post("/org/invites", headers=headers, json={
-        "email": "other@saturn.ai",
+        "email": "other@example.com",
         "name": "Other",
     })).status_code == 403
     assert (await client.get("/agents", headers=headers)).status_code == 200
@@ -79,7 +79,7 @@ async def test_operator_can_run_but_not_manage_team(client):
     invited = await client.post(
         "/org/invites",
         json={
-            "email": "ops@saturn.ai",
+            "email": "ops@example.com",
             "name": "Ops",
             "role": "operator",
             "agent_ids": ["agent_customer_ops"],
@@ -110,7 +110,7 @@ async def test_operator_can_run_but_not_manage_team(client):
 async def test_admin_can_change_member_access(client):
     invited = await client.post(
         "/org/invites",
-        json={"email": "temp@saturn.ai", "name": "Temp", "role": "viewer"},
+        json={"email": "temp@example.com", "name": "Temp", "role": "viewer"},
     )
     accepted = await client.post(
         "/auth/accept-invite",
@@ -138,7 +138,7 @@ async def test_a_member_without_agent_access_is_not_sent_agents_through_the_summ
     invited = await client.post(
         "/org/invites",
         json={
-            "email": "approver@saturn.ai",
+            "email": "approver@example.com",
             "name": "Approver",
             "role": "custom",
             "permissions": {"agents": "none", "policies": "none", "approvals": "write", "team": "none"},

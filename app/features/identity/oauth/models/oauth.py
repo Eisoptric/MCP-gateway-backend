@@ -11,7 +11,7 @@ from app.db.database import Base
 
 
 class OAuthClient(Base):
-    """An agent that registered itself as an MCP client of Saturn."""
+    """An agent that registered itself as an MCP client of Eisoptric."""
 
     __tablename__ = "oauth_clients"
 
