@@ -14,9 +14,7 @@ GCP / GitHub step each option needs, in the order to apply them.
 
 ## One-time Google Cloud setup (new project)
 
-This is the setup for a new project. An existing project should follow
-[Split and narrow the deploy identities](#split-and-narrow-the-deploy-identities) instead. To
-move from the old Saturn project, [Move to a new project](#move-to-a-new-project) does all of
+This is the setup for a new project. [Move to a new project](#move-to-a-new-project) does all of
 this section in one script.
 
 ### Workload Identity Federation
@@ -175,9 +173,8 @@ DATABASE_URL=postgresql+asyncpg://gateway:PASSWORD@/gateway?host=/cloudsql/PROJE
 CLOUD_SQL_INSTANCE_CONNECTION_NAME=PROJECT:REGION:INSTANCE   # GitHub variable
 ```
 
-For a new (TLS) Redis, create `REDIS_URL` and `REDIS_CA` as in
-[Move Redis to AUTH and TLS](#move-redis-to-auth-and-tls) (steps 2 and 3), and set the
-`REDIS_CA_SECRET` variable. An instance without TLS uses `REDIS_URL=redis://REDIS_HOST:6379/0`.
+For a new (TLS) Redis, `move-project.sh` stores `REDIS_URL` (a `rediss://` URL with the AUTH
+string) and `REDIS_CA` (the server CA), and sets the `REDIS_CA_SECRET` variable. An instance without TLS uses `REDIS_URL=redis://REDIS_HOST:6379/0`.
 
 ## GitHub variables and secrets
 
@@ -375,76 +372,6 @@ Grant `roles/secretmanager.admin` with an IAM condition
 `resource.name.startsWith("projects/PROJECT_NUMBER/secrets/sat-")` in that project. Do not grant it
 project-wide.
 
-### Split and narrow the deploy identities
-
-`split-deploy-identities.sh` does steps 1-4 (it only adds accounts and bindings, and prints the
-GitHub commands), and `retire-shared-deployer.sh` does step 5 and [Bind tokens to main](#bind-tokens-to-main).
-The second script refuses to run while any service still runs as the default compute account or
-was last deployed by the shared deployer. It also takes the default compute account's access to
-runtime secrets, the KMS key and Cloud SQL.
-
-Before the split, one `github-deployer` was shared by every repo. It holds project-wide `run.admin`,
-`iam.serviceAccountUser`, `cloudsql.admin`, `redis.admin`, `compute.networkAdmin` and
-`vpcaccess.admin`, so a compromised frontend CI can redeploy the backend with any identity. Move to
-the identities in [Identities](#identities):
-
-1. Create `github-deployer-backend` and `github-provisioner`, bind each to
-   `attribute.repository/ORG/MCP-gateway-backend` only, and grant the roles in the table.
-2. Run [Runtime service account](#runtime-service-account) with
-   `DEPLOYER_SA=github-deployer-backend@...`, so the new deployer can act as `gateway-runtime`.
-3. Set the backend secrets `GCP_SERVICE_ACCOUNT_EMAIL` (new deployer) and
-   `GCP_PROVISION_SERVICE_ACCOUNT_EMAIL` (provisioner). Set `RUNTIME_SERVICE_ACCOUNT`. Deploy.
-4. Give the frontend and dashboard repos their own deployers the same way, then remove their
-   `workloadIdentityUser` bindings on the old `github-deployer`.
-5. Remove every project-level role from the old `github-deployer`, then delete it:
-
-   ```bash
-   OLD=github-deployer@${PROJECT_ID}.iam.gserviceaccount.com
-   for ROLE in roles/run.admin roles/artifactregistry.writer roles/cloudsql.admin roles/redis.admin \
-     roles/compute.networkAdmin roles/vpcaccess.admin roles/iam.serviceAccountUser; do
-     gcloud projects remove-iam-policy-binding "$PROJECT_ID" --member "serviceAccount:${OLD}" --role "$ROLE"
-   done
-   ```
-
-Do step 5 only after `RUNTIME_SERVICE_ACCOUNT` is set. Without project-wide `serviceAccountUser`, a
-deploy that runs as the default compute account fails.
-
-### Bind tokens to main
-
-Restrict the existing provider so only `main` can get a token. This affects all three repos, and
-they all deploy from `main`.
-
-```bash
-gcloud iam workload-identity-pools providers update-oidc gateway \
-  --location global \
-  --workload-identity-pool github \
-  --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.owner=assertion.repository_owner,attribute.ref=assertion.ref" \
-  --attribute-condition "assertion.repository_owner == 'YOUR_GITHUB_ORG' && assertion.ref == 'refs/heads/main'"
-```
-
-Also set the `production` environment rules and branch protection
-([above](#github-environment-and-branch-protection)). For extra safety against a renamed or
-recreated org or repo, match on `assertion.repository_owner_id` and `assertion.repository_id`
-instead of the names.
-
-### Renamed repositories
-
-Deployers trust a repository by name (`attribute.repository/ORG/NAME`), and GitHub's OIDC token
-carries the repository's current name. The repositories were renamed from `Backend` and
-`Frontend` to `MCP-gateway-backend` and `MCP-gateway-frontend`, so a deploy from the new names gets
-no Google token until they are bound. [`rename-repos.sh`](rename-repos.sh) moves the bindings of
-`github-deployer-backend`, `github-provisioner` and `github-deployer-frontend`:
-
-```bash
-GCP_PROJECT_ID=... bash infra/gcp/rename-repos.sh                  # adds the new names
-# deploy both repositories from main and check that they serve, then:
-REMOVE_OLD=true GCP_PROJECT_ID=... bash infra/gcp/rename-repos.sh  # removes the old names
-```
-
-Remove the old names once the new ones work: a repository created later under an old name would
-otherwise be trusted by these deployers. GitHub redirects the old names for `git` and the API, so
-`gh -R` and the scripts keep working either way; their defaults now use the new names.
-
 ### Migrations in a Cloud Run Job
 
 Without the job, every container start runs `alembic upgrade head` with the app's DB user.
@@ -465,72 +392,6 @@ the migration, and it can be retried.
    point `DATABASE_URL` at the DML-only role.
 4. Optional: `ALTER ROLE gateway SET idle_in_transaction_session_timeout = '60s';`. This bounds the
    stuck transactions that `env.py` used to terminate.
-
-### Move Redis to AUTH and TLS
-
-Memorystore cannot turn on transit encryption for an existing instance, so the move is to a new
-instance. Redis holds rate-limit counters and MCP session state only. Both start empty on the new
-instance: MCP clients reconnect, and rate-limit windows restart.
-
-```bash
-REGION=asia-east1
-NEW=gateway-redis-tls
-```
-
-`redis-tls.sh` does steps 1-4 and 6.
-
-1. Create the instance:
-
-   ```bash
-   gcloud redis instances create "$NEW" --region "$REGION" --redis-version redis_7_0 \
-     --tier BASIC --size 1 --network "projects/${PROJECT_ID}/global/networks/default" \
-     --connect-mode private-service-access --enable-auth --transit-encryption-mode server-authentication
-   ```
-
-2. Store the server CA. Memorystore lists more than one certificate while it rotates its CA; keep
-   them all.
-
-   ```bash
-   gcloud redis instances describe "$NEW" --region "$REGION" --format=json |
-     python3 -c 'import json, sys; print("\n".join(c["cert"] for c in json.load(sys.stdin)["serverCaCerts"]))' |
-     gcloud secrets create REDIS_CA --replication-policy automatic --data-file -
-   ```
-
-3. Store the URL without printing the AUTH string. Cloud Run mounts the CA at
-   `/etc/secrets/redis-ca/ca.pem`. redis-py reads `ssl_ca_certs` and `ssl_cert_reqs` from the URL, so
-   the app needs no change.
-
-   ```bash
-   HOST=$(gcloud redis instances describe "$NEW" --region "$REGION" --format='value(host)')
-   PORT=$(gcloud redis instances describe "$NEW" --region "$REGION" --format='value(port)')
-   AUTH=$(gcloud redis instances get-auth-string "$NEW" --region "$REGION" --format='value(authString)')
-   printf 'rediss://:%s@%s:%s/0?ssl_cert_reqs=required&ssl_ca_certs=/etc/secrets/redis-ca/ca.pem' \
-     "$AUTH" "$HOST" "$PORT" | gcloud secrets create REDIS_URL_TLS --replication-policy automatic --data-file -
-   unset AUTH
-   ```
-
-4. Grant the runtime identity `secretAccessor` on `REDIS_URL_TLS` and `REDIS_CA`. Re-run
-   `runtime-service-account.sh` with them in `RUNTIME_SECRETS`, or bind them to whichever account
-   the services run as.
-5. Optional dry run: a one-off job that pings the new instance with the same image and mounts:
-
-   ```bash
-   gcloud run jobs create redis-check --region "$REGION" --image IMAGE@DIGEST \
-     --command python --args=-c,"import os;import redis;print(redis.Redis.from_url(os.environ['REDIS_URL']).ping())" \
-     --set-secrets REDIS_URL=REDIS_URL_TLS:latest,/etc/secrets/redis-ca/ca.pem=REDIS_CA:latest \
-     --vpc-connector gateway-vpc --vpc-egress private-ranges-only --execute-now --wait
-   gcloud run jobs delete redis-check --region "$REGION" --quiet
-   ```
-
-6. Set the GitHub variables `REDIS_URL_SECRET=REDIS_URL_TLS` and `REDIS_CA_SECRET=REDIS_CA`, then
-   deploy. Login and other rate-limited endpoints fail closed if Redis is unreachable, so watch the
-   first minutes.
-7. When traffic is healthy, delete the old instance and the old `REDIS_URL` secret.
-
-When Memorystore announces a server CA rotation, repeat step 2 as a new version of `REDIS_CA`
-(`gcloud secrets versions add`) and redeploy. redis-py 5 verifies the chain but not the hostname.
-If a later redis-py checks hostnames by default and the Memorystore certificate does not name the
-IP, add `&ssl_check_hostname=false` to the URL. The CA check alone still blocks a spoofed server.
 
 ### Harden an existing Cloud SQL instance
 
