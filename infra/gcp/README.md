@@ -15,7 +15,9 @@ GCP / GitHub step each option needs, in the order to apply them.
 ## One-time Google Cloud setup (new project)
 
 This is the setup for a new project. An existing project should follow
-[Split and narrow the deploy identities](#split-and-narrow-the-deploy-identities) instead.
+[Split and narrow the deploy identities](#split-and-narrow-the-deploy-identities) instead. To
+move from the old Saturn project, [Move to a new project](#move-to-a-new-project) does all of
+this section in one script.
 
 ### Workload Identity Federation
 
@@ -279,6 +281,56 @@ The container runs as uid 10001. uvicorn no longer gets `--proxy-headers --forwa
 so it trusts `X-Forwarded-*` only from 127.0.0.1. Behind Cloud Run, `request.client` is the Google
 front end and `request.url.scheme` is `http`. Code that needs the public origin or scheme must use
 `PUBLIC_WS_URL` (`app/core/public_origin.py`), not `request.base_url`.
+
+## Move to a new project
+
+`move-project.sh` builds the whole deployment in a new project and carries over what still holds
+from the old one, which it only reads. The data starts fresh: secrets and payloads sealed under the
+old `saturn-*` labels do not open under the new ones, so the database and Redis are new and empty.
+
+Run it on your own computer, signed in with `gcloud auth login` as someone who can create projects,
+link billing and grant IAM, and with `gh auth login` if it should set the repositories' variables
+and secrets (`GITHUB_SETUP=true`; otherwise it prints the `gh` commands):
+
+```bash
+NEW_PROJECT_ID=eisoptric-prod OLD_PROJECT_ID=<the Saturn project> \
+BILLING_ACCOUNT=<from gcloud billing accounts list> SEED_USER_EMAIL=<first admin> \
+GITHUB_SETUP=true bash infra/gcp/move-project.sh setup
+```
+
+`setup` creates the project (under `PROJECT_PARENT=organizations/ID` or `folders/ID` when set),
+links billing and enables the APIs, then:
+
+- runs `bootstrap.sh` for Artifact Registry, the VPC connector, Cloud SQL `gateway-pg` and Redis
+  `gateway-redis`, with a new database password that goes only into `DATABASE_URL` and the
+  `CLOUD_SQL_PASSWORD` GitHub secret, and stores `REDIS_URL` and `REDIS_CA`;
+- copies `SATURN_GITHUB_OAUTH_*` and `SATURN_GOOGLE_OAUTH_*` to their `GATEWAY_` names, and
+  `RESEND_*` and `POLICY_LLM_*` as they are, from the old project without printing them; a secret
+  the old project lacks is skipped;
+- makes new random `ORIGIN_AUTH_SECRET` and `CONSOLE_PROXY_SECRET` values, and asks for the first
+  admin's password (`SEED_USER_PASSWORD`);
+- creates the Cloud KMS MAC key `gateway/kem-root` (HMAC-SHA256, `KMS_PROTECTION_LEVEL`, default
+  `software`), the Workload Identity pool and provider, the deploy and runtime identities as in
+  [Identities](#identities) (with `runtime-service-account.sh` for `gateway-runtime`), and sets the
+  repositories' variables and secrets, with `MIGRATIONS_JOB=true` and `SEED_ON_DEPLOY=true`.
+
+The services do not exist yet, so the deployers hold `roles/run.admin` on the project for the
+first deploy. Then:
+
+1. Point the Cloudflare Transform Rule's `X-Eisoptric-Origin-Auth` at the new `ORIGIN_AUTH_SECRET`.
+2. Deploy Backend, then Frontend, then Dashboard, from `main`.
+3. Point `api.eisoptric.com` and `dashboard.eisoptric.com` at the new services.
+4. Sign in as the first admin, then run
+   `GCP_PROJECT_ID=eisoptric-prod NEW_PROJECT_ID=eisoptric-prod bash infra/gcp/move-project.sh after-first-deploy`.
+   It narrows each deployer to `roles/run.admin` on its own services, sets `SEED_ON_DEPLOY=false`
+   and disables the seed secrets' versions. Deploy Backend once more, and run `uptime-checks.sh`.
+
+The Google OAuth client still lives in the old project, so sign-in with Google works only while
+that project is up: create a new client in the new project, update `GATEWAY_GOOGLE_OAUTH_*`, and
+check that both OAuth apps (Google and GitHub) list `https://api.eisoptric.com` callbacks before
+shutting the old project down. `demosystem` and its `acme` registry are not moved.
+
+The script has only been run against stand-in `gcloud` and `gh` commands.
 
 ## Runbooks
 
