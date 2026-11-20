@@ -173,8 +173,7 @@ fi
 
 echo "Ensuring Memorystore Redis instance ${REDIS_INSTANCE}"
 # New instances require AUTH and TLS (port 6378). Transit encryption cannot be
-# turned on for an existing instance; see "Move Redis to AUTH and TLS" in
-# infra/gcp/README.md.
+# turned on for an existing instance: create a new one and move to it.
 if gcloud redis instances describe "${REDIS_INSTANCE}" \
   --region "${GCP_REGION}" >/dev/null 2>&1; then
   redis_state="$(gcloud redis instances describe "${REDIS_INSTANCE}" \
