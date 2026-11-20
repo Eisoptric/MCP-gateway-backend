@@ -8,6 +8,7 @@ Notable changes to MCP Gateway Backend. The format follows [Keep a Changelog](ht
 
 - **Saturn MCP is now MCP Gateway, by Eisoptric.** The repository moved to [eisoptric/MCP-gateway-backend](https://github.com/eisoptric/MCP-gateway-backend), and the public addresses to `api.eisoptric.com`, `ws.eisoptric.com` and `dashboard.eisoptric.com`.
 - **Breaking: nothing signed or sealed before this version opens after it.** Every domain-separation label changed from `saturn-*` to `eisoptric-*` (login and member-wrap derivation, payload keys, credential encryption, approval digests, TOTP backups, recovery keys), so existing passwords, sealed credentials, wrapped member keys and webhook signatures from earlier versions no longer verify. Deploy it to a fresh database, or plan a re-enrolment.
+- **No load balancer.** On Cloudflare's free plan the API deploys with ingress `all` behind the origin secret Cloudflare adds. `infra/gcp/cloudflare-ingress.sh` and the `CLOUD_RUN_INGRESS` variable are gone, and the deploy no longer warns about ingress.
 - Settings are read from `GATEWAY_*` (was `SATURN_*`, for example `GATEWAY_KMS_KEY`, `GATEWAY_GOOGLE_OAUTH_CLIENT_ID`), headers are `X-Eisoptric-*` and `Eisoptric-Webhook-*`, the cookies are `eisoptric_session` and `eisoptric_oauth`, the OAuth scope is `eisoptric.mcp`, and an agent resubmits an approved call with `gatewayRunId` (was `saturnRunId`). The default organization id is `org_default` (was `org_saturn`): an existing deployment sets `DEFAULT_ORG_ID=org_saturn` to keep its organization.
 
 ### Added

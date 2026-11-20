@@ -202,7 +202,6 @@ Backend only:
 | `GATEWAY_KMS_KEY` | variable, full `cryptoKeyVersions/N` name of the MAC key (a resource name, not key material; read by deploy and provisioning) | required |
 | `CLOUD_SQL_PASSWORD` | secret, read only by provisioning; `rotate-db-password.sh` keeps it current | required to provision |
 | `GCP_PROVISION_SERVICE_ACCOUNT_EMAIL` | secret | provisioning uses `GCP_SERVICE_ACCOUNT_EMAIL` |
-| `CLOUD_RUN_INGRESS` | variable: `all`, `internal`, `internal-and-cloud-load-balancing` | the API keeps its current ingress |
 | `MIGRATIONS_JOB` | variable, `true` to run migrations in a Cloud Run Job | each container migrates on start |
 | `MIGRATIONS_JOB_NAME` | variable | `gateway-migrate` |
 | `MIGRATIONS_DATABASE_URL_SECRET` | variable, secret name holding a schema-owner DSN | `DATABASE_URL` |
@@ -506,78 +505,33 @@ hand, use
 `gcloud sql users set-password gateway --instance gateway-pg --prompt-for-password` at an interactive
 terminal. Then update the `DATABASE_URL` secret and redeploy.
 
-### Restrict ingress to Cloudflare
+### Ingress: Cloudflare on the free plan
 
-The API currently accepts traffic on its `*.run.app` URL from anywhere. The only thing stopping a
-request that bypasses Cloudflare (WAF, bot rules, rate rules) is the static `ORIGIN_AUTH_SECRET`
-header. The target setup is Cloudflare → Google external Application Load Balancer, with Cloud Armor
-allowing only Cloudflare IPs → Cloud Run with ingress `internal-and-cloud-load-balancing`.
+Cloudflare (free plan) proxies `api.eisoptric.com` and `dashboard.eisoptric.com` straight to the
+services' public Cloud Run addresses, so both deploy with ingress `all`. There is no Google load
+balancer or Cloud Armor policy in front of them: on the free plan they would cost more than the rest
+of the deployment, and Cloudflare's own WAF, bot and rate rules apply only to traffic it proxies.
 
-`cloudflare-ingress.sh` does steps 1 and 2 from the Origin CA certificate files.
+What keeps a request that bypasses Cloudflare out is `ORIGIN_AUTH_SECRET`. A Cloudflare Transform
+Rule (Rules → Transform Rules → Modify Request Header, available on the free plan) sets
+`X-Eisoptric-Origin-Auth` to its value on every request, and the API and the console refuse any
+request without it, except `/health`. The app trusts `CF-Connecting-IP` for rate limits only on a
+request that carries the secret, so a direct caller cannot choose the address it is limited by.
 
-1. Load balancer in front of the service. Use a Cloudflare Origin CA certificate: a Google-managed
-   certificate cannot validate while Cloudflare proxies the hostname.
+Rotate the secret on any suspected leak, and at least yearly. The app accepts the previous value
+alongside the new one while `ORIGIN_AUTH_SECRET_PREVIOUS` is mounted, so nothing is refused during
+the switch:
 
-   ```bash
-   gcloud compute network-endpoint-groups create gateway-backend-neg --region "$REGION" \
-     --network-endpoint-type serverless --cloud-run-service gateway-backend
-   gcloud compute backend-services create gateway-backend-bs --global --load-balancing-scheme EXTERNAL_MANAGED
-   gcloud compute backend-services add-backend gateway-backend-bs --global \
-     --network-endpoint-group gateway-backend-neg --network-endpoint-group-region "$REGION"
-   gcloud compute url-maps create gateway-backend-lb --default-service gateway-backend-bs
-   gcloud compute ssl-certificates create gateway-api-origin --global \
-     --certificate origin.pem --private-key origin-key.pem
-   gcloud compute target-https-proxies create gateway-backend-https \
-     --url-map gateway-backend-lb --ssl-certificates gateway-api-origin
-   gcloud compute addresses create gateway-backend-ip --global
-   gcloud compute forwarding-rules create gateway-backend-https --global \
-     --load-balancing-scheme EXTERNAL_MANAGED --address gateway-backend-ip \
-     --target-https-proxy gateway-backend-https --ports 443
-   ```
-
-2. Cloud Armor: deny by default, and allow Cloudflare's published ranges, at most 10 per rule.
-
-   ```bash
-   gcloud compute security-policies create gateway-cloudflare-only
-   gcloud compute security-policies rules update 2147483647 --security-policy gateway-cloudflare-only --action deny-403
-   priority=1000
-   { curl -sSf https://www.cloudflare.com/ips-v4; echo; curl -sSf https://www.cloudflare.com/ips-v6; } |
-     grep . | xargs -n 10 | while read -r ranges; do
-       gcloud compute security-policies rules create "$priority" --security-policy gateway-cloudflare-only \
-         --src-ip-ranges "${ranges// /,}" --action allow
-       priority=$((priority + 1))
-     done
-   gcloud compute backend-services update gateway-backend-bs --global --security-policy gateway-cloudflare-only
-   ```
-
-   Cloudflare's ranges change rarely, but they do change. Re-run this when
-   https://www.cloudflare.com/ips/ changes, or schedule it.
-3. Point the Cloudflare DNS record for `api.eisoptric.com` at the load balancer IP (proxied), with
-   SSL mode **Full (strict)**. Optionally turn on Authenticated Origin Pulls and require the
-   Cloudflare client certificate on the load balancer (mTLS).
-4. Set `CLOUD_RUN_INGRESS=internal-and-cloud-load-balancing` and deploy. The `*.run.app` URL then
-   refuses outside traffic. To roll back, set the variable to `all` and deploy.
-5. Rotate `ORIGIN_AUTH_SECRET`, since the old value may have been exposed while the origin was
-   public. The app accepts the previous value alongside the new one while
-   `ORIGIN_AUTH_SECRET_PREVIOUS` is mounted, so nothing is refused during the switch:
-   1. Copy the current value into its own secret:
-      `gcloud secrets versions access latest --secret ORIGIN_AUTH_SECRET | gcloud secrets create ORIGIN_AUTH_SECRET_PREVIOUS --data-file -`
-      (use `versions add` if that secret already exists), and grant the runtime service account
-      `roles/secretmanager.secretAccessor` on it.
-   2. `openssl rand -hex 32 | gcloud secrets versions add ORIGIN_AUTH_SECRET --data-file -`
-   3. Set the repository variable `ORIGIN_AUTH_SECRET_PREVIOUS_NAME=ORIGIN_AUTH_SECRET_PREVIOUS`
-      and deploy the backend. It now accepts both values.
-   4. Update the Cloudflare Transform Rule that sets `X-Eisoptric-Origin-Auth` to the new value.
-   5. Remove the repository variable and deploy again, so the old value stops working.
-
-   Rotate again on any suspected leak, and at least yearly.
-
-Once only Cloudflare can reach the service, the `CF-Connecting-IP` header the app reads for rate
-limits comes only from Cloudflare.
-
-The console (Frontend) needs the same treatment: its `*.run.app` URL proxies `/gateway-api` to the
-API. Put it behind its own load balancer and Cloud Armor policy the same way, then set
-`CLOUD_RUN_INGRESS=internal-and-cloud-load-balancing` on the Frontend repo.
+1. Copy the current value into its own secret:
+   `gcloud secrets versions access latest --secret ORIGIN_AUTH_SECRET | gcloud secrets create ORIGIN_AUTH_SECRET_PREVIOUS --data-file -`
+   (use `versions add` if that secret already exists), and grant the runtime service account
+   `roles/secretmanager.secretAccessor` on it.
+2. `openssl rand -hex 32 | gcloud secrets versions add ORIGIN_AUTH_SECRET --data-file -`
+3. Set the repository variable `ORIGIN_AUTH_SECRET_PREVIOUS_NAME=ORIGIN_AUTH_SECRET_PREVIOUS`
+   and deploy the backend. It now accepts both values.
+4. Update the Cloudflare Transform Rule that sets `X-Eisoptric-Origin-Auth` to the new value, and
+   deploy the console so it reads the new version too.
+5. Remove the repository variable and deploy again, so the old value stops working.
 
 ### Uptime checks from Cloud Monitoring
 

@@ -421,7 +421,7 @@ These are known as of [0.1.0](CHANGELOG.md) and not yet fixed.
 
 - `infra/gcp/split-deploy-identities.sh` grants each repository's deployer `roles/run.developer` on the whole project, so either pipeline can change the other's Cloud Run resources. To prevent that, scope the grant to each service and to the migrate job.
 - `infra/gcp/rotate-db-password.sh` has only been run against stand-in commands, never against a second Cloud SQL instance.
-- With no load balancer in front of Cloud Run, `ORIGIN_AUTH_SECRET` is what keeps clients off the `*.run.app` URL, and `REQUIRE_HARDENED_DEPLOY` stays off.
+- On Cloudflare's free plan nothing sits between Cloudflare and Cloud Run, so the `*.run.app` URLs are public and `ORIGIN_AUTH_SECRET` alone keeps clients off them. Until it is rotated, a leaked value lets anyone bypass Cloudflare's rules (see [Ingress](infra/gcp/README.md#ingress-cloudflare-on-the-free-plan)).
 - The outside uptime check is a Cloud Monitoring check that `infra/gcp/uptime-checks.sh` creates (see [Uptime checks from Cloud Monitoring](infra/gcp/README.md#uptime-checks-from-cloud-monitoring)). The script has only been run against stand-in commands, and that Cloudflare's Bot Fight Mode lets Google's probes through is inferred from the worker's own checks, not yet seen.
 - Tests run on SQLite by default, which does not check parameter types and takes no row locks. Changes to raw SQL, migrations or locking also need a run against PostgreSQL.
 
