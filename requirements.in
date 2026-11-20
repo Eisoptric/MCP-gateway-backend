@@ -32,7 +32,7 @@ cryptography==50.0.2
 argon2-cffi==25.1.0
 webauthn==3.0.1
 google-cloud-secret-manager==2.31.0
-google-cloud-kms==3.18.0
+google-cloud-kms==3.19.0
 redis==8.1.0
 # Security fixes for shared TLS trust and parsers used by transitive dependencies.
 certifi==2026.10.23
