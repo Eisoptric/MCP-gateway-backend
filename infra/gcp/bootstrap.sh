@@ -191,7 +191,8 @@ else
     --network "projects/${GCP_PROJECT_ID}/global/networks/${VPC_NETWORK}" \
     --connect-mode private-service-access \
     --enable-auth \
-    --transit-encryption-mode server-authentication
+    --transit-encryption-mode server-authentication \
+    --quiet
 fi
 
 # The runtime identity needs IAM grants that the GitHub deployer cannot make.
