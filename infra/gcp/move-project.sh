@@ -14,7 +14,9 @@ set -euo pipefail
 STEP="${1:-setup}"
 : "${NEW_PROJECT_ID:?NEW_PROJECT_ID is required, for example eisoptric-prod}"
 GCP_PROJECT_ID="${NEW_PROJECT_ID}"
-GITHUB_ORG="${GITHUB_ORG:-eisoptric}"
+# GitHub sends the owner as the organization spells it, and the provider's condition compares it
+# exactly, so this must match the casing of github.com/Eisoptric.
+GITHUB_ORG="${GITHUB_ORG:-Eisoptric}"
 BACKEND_REPO="${BACKEND_REPO:-MCP-gateway-backend}"
 FRONTEND_REPO="${FRONTEND_REPO:-MCP-gateway-frontend}"
 DASHBOARD_REPO="${DASHBOARD_REPO:-Dashboard}"
@@ -312,6 +314,18 @@ sys.stdout.write(f"postgresql+asyncpg://gateway:{password}@/gateway?host=/clouds
   github_variable "${BACKEND_REPO}" SEED_ON_DEPLOY true
   github_variable "${BACKEND_REPO}" CONSOLE_PROXY_SECRET_NAME CONSOLE_PROXY_SECRET
   github_variable "${FRONTEND_REPO}" CONSOLE_PROXY_SECRET_NAME CONSOLE_PROXY_SECRET
+  # The old project's values for these would send the deploy to saturn-* services and secrets that
+  # the new project does not have.
+  github_variable "${BACKEND_REPO}" BACKEND_CLOUD_RUN_SERVICE gateway-backend
+  github_variable "${FRONTEND_REPO}" FRONTEND_CLOUD_RUN_SERVICE gateway-frontend
+  github_variable "${DASHBOARD_REPO}" DASHBOARD_CLOUD_RUN_SERVICE gateway-dashboard
+  github_variable "${BACKEND_REPO}" REDIS_URL_SECRET REDIS_URL
+  github_variable "${BACKEND_REPO}" SERVERLESS_VPC_CONNECTOR_RANGE 10.8.0.0/28
+  if [[ "${GITHUB_SETUP}" == "true" ]]; then
+    gh variable delete SATURN_KMS_KEY -R "${GITHUB_ORG}/${BACKEND_REPO}" 2>/dev/null || true
+  else
+    echo "gh variable delete SATURN_KMS_KEY -R ${GITHUB_ORG}/${BACKEND_REPO}"
+  fi
   if [[ "${GITHUB_SETUP}" == "true" ]]; then
     printf '%s' "${CLOUD_SQL_PASSWORD}" | gh secret set CLOUD_SQL_PASSWORD -R "${GITHUB_ORG}/${BACKEND_REPO}"
   else
@@ -324,7 +338,8 @@ sys.stdout.write(f"postgresql+asyncpg://gateway:{password}@/gateway?host=/clouds
 Done with setup. Next, in this order:
   1. Cloudflare: change the Transform Rule so X-Eisoptric-Origin-Auth carries the new
      ORIGIN_AUTH_SECRET (gcloud secrets versions access latest --secret ORIGIN_AUTH_SECRET --project ${GCP_PROJECT_ID}).
-  2. Deploy ${BACKEND_REPO} from main, then ${FRONTEND_REPO}, then ${DASHBOARD_REPO}.
+  2. Deploy ${BACKEND_REPO} from main, then set ${DASHBOARD_REPO}'s BACKEND_PUBLIC_URL to the new
+     gateway-backend URL, then deploy ${FRONTEND_REPO} and ${DASHBOARD_REPO}.
   3. Point api.eisoptric.com and dashboard.eisoptric.com at the new services, the way the old ones were.
   4. Sign in as ${SEED_USER_EMAIL}, then: GCP_PROJECT_ID=${GCP_PROJECT_ID} bash infra/gcp/move-project.sh after-first-deploy
 EOF
