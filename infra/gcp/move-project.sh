@@ -161,7 +161,10 @@ setup() {
     esac
     gcloud projects create "${GCP_PROJECT_ID}" --name "Eisoptric" ${parent[@]+"${parent[@]}"}
   fi
-  gcloud billing projects link "${GCP_PROJECT_ID}" --billing-account "${BILLING_ACCOUNT}" >/dev/null
+  # Linking again counts against the billing account's project quota even when nothing changes.
+  if [[ "$(gcloud billing projects describe "${GCP_PROJECT_ID}" --format='value(billingAccountName)')" != "billingAccounts/${BILLING_ACCOUNT}" ]]; then
+    gcloud billing projects link "${GCP_PROJECT_ID}" --billing-account "${BILLING_ACCOUNT}" >/dev/null
+  fi
   gcloud services enable --project "${GCP_PROJECT_ID}" \
     cloudresourcemanager.googleapis.com iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com \
     secretmanager.googleapis.com cloudkms.googleapis.com run.googleapis.com artifactregistry.googleapis.com \
