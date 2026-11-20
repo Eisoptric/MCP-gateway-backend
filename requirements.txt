@@ -576,7 +576,7 @@ fastapi==0.162.0 \
     --hash=sha256:3785963de305dd09912426cb81f2d230fce98ab3521cdfe97265c8d14983128c \
     --hash=sha256:6a22c1e2e6e32e0633ee7e170f00009a29b8228b16feb219ee42f32fd8d88a8f
     # via -r requirements.in
-google-api-core==2.41.0 \
+google-api-core[grpc]==2.41.0 \
     --hash=sha256:1f3d626b7a8022dda8deef200b845057231ddc7cbf0d999026bdf61ba38d7fdf \
     --hash=sha256:73e89a86baef6680934adeee6fbd0ceaf20c1393ab229b2f9b34efb23b0fdef3
     # via
@@ -589,15 +589,15 @@ google-auth==2.60.0 \
     #   google-api-core
     #   google-cloud-kms
     #   google-cloud-secret-manager
-google-cloud-kms==3.18.0 \
-    --hash=sha256:019754cbcd57d032027d288e9c138c062c7870585c461b2e2772c1bc61c6d40a \
-    --hash=sha256:475d3d8fd4e2697cab71493b99e48dcb5e0bbf347a663907942df1eaa009b5f6
+google-cloud-kms==3.19.0 \
+    --hash=sha256:6b48ae9a7551b27f14a5f7f5a22c3f60bfa06e393d8785568f4397a9c7db021c \
+    --hash=sha256:967f02479b960aa6b6059c78adf2c6fc1b39bd114615a79d872f63b3d7b105aa
     # via -r requirements.in
 google-cloud-secret-manager==2.31.0 \
     --hash=sha256:29bb33b48c3b974495a4d015e06b06b126e23232bccd223d678da1e1a861b6e6 \
     --hash=sha256:945ef53be34b09f94b86eeabca910e19460fb54680cf5e0a792a77d62355e88e
     # via -r requirements.in
-googleapis-common-protos==1.75.5 \
+googleapis-common-protos[grpc]==1.75.5 \
     --hash=sha256:c7a866fc34ed29a3b10af627a4b9b1dc2433313ca6e959f0ae4feb132047ed72 \
     --hash=sha256:d7285525c23039db98f2463e6d5a4f9b958b94d497f03a844ece3259c4e72d5d
     # via
@@ -1040,7 +1040,7 @@ pyasn1-modules==0.4.2 \
     # via
     #   google-auth
     #   webauthn
-pycparser==3.0 ; implementation_name != 'PyPy' \
+pycparser==3.0 \
     --hash=sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29 \
     --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
     # via cffi
@@ -1378,16 +1378,13 @@ typing-extensions==4.16.0 \
     --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5
     # via
     #   alembic
-    #   anyio
     #   fastapi
     #   grpcio
     #   opentelemetry-api
     #   pydantic
     #   pydantic-core
     #   pydantic-settings
-    #   pyopenssl
     #   sqlalchemy
-    #   starlette
     #   typing-inspection
 typing-inspection==0.4.4 \
     --hash=sha256:547274fa6b0a561ccf549cc9524b999a578e737d015d8709d021f9d0d13bea47 \
@@ -1400,11 +1397,11 @@ urllib3==2.8.0 \
     --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3 \
     --hash=sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63
     # via requests
-uvicorn==0.54.0 \
+uvicorn[standard]==0.54.0 \
     --hash=sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf \
     --hash=sha256:a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620
     # via -r requirements.in
-uvloop==0.23.0 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32' \
+uvloop==0.23.0 \
     --hash=sha256:0305871ac712f54b62af73f943dbf21ae3ce80a44bc0f0151424484affa85645 \
     --hash=sha256:090865d8ce7a03986755a3ce711b7dd0d4b44eb14ab74368b717f3fad1180208 \
     --hash=sha256:098a85e1393ef5202767b7e5fb41a32cd8bd81e6ee4af364c179801c4aa3f6d4 \
