@@ -21,7 +21,7 @@ Agent 只呼叫一個 MCP 端點。Eisoptric 只讓每個 Agent 看到自己的�
 
 MCP Gateway 位在 AI Agent 與它們使用的 MCP 伺服器之間。Agent 不再直接連到各個伺服器，而是連到 Eisoptric，以 OAuth 登入，並且只看得到組織放進它工具集的工具。每一次呼叫在送到上游伺服器之前都會先經過評估。
 
-這個 repository 是 API：在 Cloud Run 上執行的 FastAPI 應用程式，搭配 Postgres 與 Redis。主控台 [dashboard.eisoptric.com](https://dashboard.eisoptric.com) 是另一個 repository（[MCP-gateway-frontend](https://github.com/eisoptric/MCP-gateway-frontend)），產品介紹在 [eisoptric.com](https://eisoptric.com)。桌面 Agent Workbench 也可以像其他 MCP 用戶端一樣連到 MCP Gateway。
+這個 repository 是 API：在 Cloud Run 上執行的 FastAPI 應用程式，搭配 Postgres 與 Redis。主控台 [console.eisoptric.com](https://console.eisoptric.com) 是另一個 repository（[MCP-gateway-frontend](https://github.com/eisoptric/MCP-gateway-frontend)），產品介紹在 [eisoptric.com](https://eisoptric.com)。桌面 Agent Workbench 也可以像其他 MCP 用戶端一樣連到 MCP Gateway。
 
 - **每個組織一個端點。** `POST /mcp` 以 HTTP 提供 MCP（`initialize`、`tools/list`、`tools/call`）。每個連上來的 OAuth 用戶端，都會成為登入成員的一個 Agent。
 - **預設拒絕。** 某個工具有規則但沒有任何規則符合時，會被拒絕。沒有任何政策對某個工具訂規則時，依 agent 的工具集決定：該項目標記為需要核准就需要核准，否則允許。其他情況一律拒絕。
@@ -52,7 +52,7 @@ MCP Gateway 位在 AI Agent 與它們使用的 MCP 伺服器之間。Agent 不�
 ```mermaid
 flowchart LR
   C["MCP 用戶端<br/><sub>一個 Agent</sub>"] -- "OAuth bearer · /mcp" --> G
-  F["主控台<br/><sub>dashboard.eisoptric.com</sub>"] -- "session token" --> API
+  F["主控台<br/><sub>console.eisoptric.com</sub>"] -- "session token" --> API
   subgraph API["MCP Gateway Backend · Cloud Run 上的 FastAPI"]
     G["MCP Gateway"] --> P["政策引擎"]
     P --> A["核准"]
@@ -291,7 +291,7 @@ Agent 錢包與 x402 付款已經移除（遷移 `039_drop_wallets_x402`）。
 | `SEED_USER_NAME` | `Admin` | 它的顯示名稱 |
 | `SKIP_DB_BOOTSTRAP` | `false` | `true` 會略過初始資料與啟動時的資料庫工作 |
 | `SESSION_TTL_DAYS` | `7` | 工作階段的有效天數；24 小時沒有請求的工作階段也會結束 |
-| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://dashboard.eisoptric.com` | 允許的瀏覽器來源，也是 cookie 請求與 passkey 信任的來源 |
+| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://console.eisoptric.com` | 允許的瀏覽器來源，也是 cookie 請求與 passkey 信任的來源 |
 | `IN_PROCESS_RUNTIME` | `false` | 只用於本機開發與測試：在行程內執行 run，速率限制與 MCP 工作階段存在記憶體中，回傳邀請 token |
 | `POLICY_DEFAULT_DENY` | `true` | 沒有適用政策時拒絕呼叫 |
 | `GATEWAY_EMBED_WORKER` | `true` | 在 API 行程中執行核准到期與 Webhook 的 worker |

@@ -22,7 +22,7 @@ def test_verification_email_uses_the_account_language():
     assert "<script" not in zh_html
 
     notice_subject, notice_text, notice_html = _notice_message(
-        "approval", "billing.refund", "Acme Ops", "https://dashboard.eisoptric.com/activity?event=1", "en-US"
+        "approval", "billing.refund", "Acme Ops", "https://console.eisoptric.com/activity?event=1", "en-US"
     )
     assert notice_subject == "Eisoptric: Approval required — billing.refund"
     assert "Approval required" in notice_text

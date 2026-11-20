@@ -21,7 +21,7 @@ Agents call one MCP endpoint. Eisoptric shows each agent only its tool set, chec
 
 MCP Gateway sits between AI agents and the MCP servers they use. An agent connects to Eisoptric instead of to each server, signs in with OAuth, and sees only the tools its organization put in its tool set. Every call is evaluated before anything reaches the upstream server.
 
-This repository is the API: a FastAPI app on Cloud Run with Postgres and Redis. The console at [dashboard.eisoptric.com](https://dashboard.eisoptric.com) is a separate repository ([MCP-gateway-frontend](https://github.com/eisoptric/MCP-gateway-frontend)), and [eisoptric.com](https://eisoptric.com) describes the product. Workbench, the desktop agent, can be pointed at MCP Gateway like any other MCP client.
+This repository is the API: a FastAPI app on Cloud Run with Postgres and Redis. The console at [console.eisoptric.com](https://console.eisoptric.com) is a separate repository ([MCP-gateway-frontend](https://github.com/eisoptric/MCP-gateway-frontend)), and [eisoptric.com](https://eisoptric.com) describes the product. Workbench, the desktop agent, can be pointed at MCP Gateway like any other MCP client.
 
 - **One endpoint per organization.** `POST /mcp` speaks MCP over HTTP (`initialize`, `tools/list`, `tools/call`). Each OAuth client that connects becomes an agent of the signed-in member.
 - **Default deny.** A tool that has rules but no matching rule is denied. A tool no policy has a rule for follows the agent's tool set: approval if the item is marked for approval, otherwise allowed. Anything else is denied.
@@ -52,7 +52,7 @@ The control plane starts **empty**. Bootstrap creates a platform admin only: no 
 ```mermaid
 flowchart LR
   C["MCP client<br/><sub>an agent</sub>"] -- "OAuth bearer · /mcp" --> G
-  F["Console<br/><sub>dashboard.eisoptric.com</sub>"] -- "session token" --> API
+  F["Console<br/><sub>console.eisoptric.com</sub>"] -- "session token" --> API
   subgraph API["MCP Gateway Backend · FastAPI on Cloud Run"]
     G["MCP Gateway"] --> P["Policy engine"]
     P --> A["Approvals"]
@@ -291,7 +291,7 @@ Settings come from the environment (or `.env`); see `.env.example`. App settings
 | `SEED_USER_NAME` | `Admin` | Its display name |
 | `SKIP_DB_BOOTSTRAP` | `false` | `true` skips seeding and the startup database work |
 | `SESSION_TTL_DAYS` | `7` | Session lifetime; a session also ends after 24 hours without a request |
-| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://dashboard.eisoptric.com` | Allowed browser origins, also trusted for cookie requests and passkeys |
+| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://console.eisoptric.com` | Allowed browser origins, also trusted for cookie requests and passkeys |
 | `IN_PROCESS_RUNTIME` | `false` | Local development and tests only: executes runs in process, keeps rate limits and MCP sessions in memory, returns invite tokens |
 | `POLICY_DEFAULT_DENY` | `true` | Deny a call when no policy applies |
 | `GATEWAY_EMBED_WORKER` | `true` | Run the approval-expiry and webhook worker in the API process |

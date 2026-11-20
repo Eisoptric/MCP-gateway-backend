@@ -135,7 +135,7 @@ def console_origin() -> str:
         cleaned = origin.strip().rstrip("/")
         if cleaned.startswith("https://"):
             return cleaned
-    return "https://dashboard.eisoptric.com"
+    return "https://console.eisoptric.com"
 
 
 async def send_notice(

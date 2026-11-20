@@ -144,7 +144,7 @@ jobs:
           DEFAULT_ACTOR_ID: ${{ vars.DEFAULT_ACTOR_ID }}
           SEED_USER_NAME: ${{ vars.SEED_USER_NAME }}
           SESSION_TTL_DAYS: ${{ vars.SESSION_TTL_DAYS }}
-          CORS_ORIGINS: https://dashboard.eisoptric.com
+          CORS_ORIGINS: https://console.eisoptric.com
           PUBLIC_WS_URL: https://api.eisoptric.com
           GATEWAY_KMS_KEY: ${{ vars.GATEWAY_KMS_KEY }}
           LEGACY_PASSWORD_UNTIL: ${{ vars.LEGACY_PASSWORD_UNTIL }}

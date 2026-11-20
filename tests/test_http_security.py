@@ -87,8 +87,8 @@ def test_production_trusts_only_https_origins(monkeypatch):
     from app.core.config import Settings
 
     monkeypatch.setenv("K_SERVICE", "gateway-backend")
-    settings = Settings(cors_origins="http://localhost:3000,https://dashboard.eisoptric.com, http://evil.test")
-    assert settings.cors_origins == "https://dashboard.eisoptric.com"
+    settings = Settings(cors_origins="http://localhost:3000,https://console.eisoptric.com, http://evil.test")
+    assert settings.cors_origins == "https://console.eisoptric.com"
     monkeypatch.delenv("K_SERVICE")
-    local = Settings(cors_origins="http://localhost:3000,https://dashboard.eisoptric.com")
-    assert local.cors_origins == "http://localhost:3000,https://dashboard.eisoptric.com"
+    local = Settings(cors_origins="http://localhost:3000,https://console.eisoptric.com")
+    assert local.cors_origins == "http://localhost:3000,https://console.eisoptric.com"

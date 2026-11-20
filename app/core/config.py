@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     seed_user_email: str = ""
     seed_user_name: str = "Admin"
     seed_user_password: str = ""
-    cors_origins: str = "http://localhost:3000,http://localhost:3001,https://dashboard.eisoptric.com"
+    cors_origins: str = "http://localhost:3000,http://localhost:3001,https://console.eisoptric.com"
     in_process_runtime: bool = False
     policy_default_deny: bool = True
     gateway_embed_worker: bool = True

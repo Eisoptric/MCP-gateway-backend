@@ -67,7 +67,7 @@ async def test_mcp_sign_in_result_goes_only_to_console_origins(client):
     page = await client.get("/mcp-servers/oauth/callback", params={"state": "unknown", "code": "x"})
     assert page.status_code == 200
     assert '"*"' not in page.text
-    assert "https://dashboard.eisoptric.com" in page.text
+    assert "https://console.eisoptric.com" in page.text
 
 
 async def test_oauth_pages_submit_each_form_once(client):

@@ -11,7 +11,7 @@ set -euo pipefail
 
 : "${GCP_PROJECT_ID:?GCP_PROJECT_ID is required}"
 : "${ALERT_EMAIL:?ALERT_EMAIL is required: the address that receives uptime alerts}"
-HOSTS="${UPTIME_HOSTS:-api.eisoptric.com dashboard.eisoptric.com}"
+HOSTS="${UPTIME_HOSTS:-api.eisoptric.com console.eisoptric.com}"
 # At least three regions. A check alerts when two of them fail, so one probe's bad network is not
 # reported as an outage.
 REGIONS="${UPTIME_REGIONS:-asia-pacific,usa-oregon,europe}"
