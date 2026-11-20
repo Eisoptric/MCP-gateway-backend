@@ -38,7 +38,8 @@ def model(monkeypatch):
         (403, "rejected the API key"),
         (404, "not found"),
         (429, "rate limited"),
-        (400, "rejected the request"),
+        # The body says the key is wrong, so a 400 is about the key too.
+        (400, "rejected the API key"),
         (503, "provider had an error"),
         (418, "HTTP 418"),
     ],
@@ -89,3 +90,42 @@ async def test_a_non_json_success_is_unreadable_not_a_crash(model):
     with pytest.raises(HTTPException) as unreadable:
         await policy_llm._chat([{"role": "user", "content": "hi"}])
     assert unreadable.value.detail == "Policy model returned an unreadable response"
+
+
+async def test_a_bad_key_answered_with_400_says_to_check_the_key(model):
+    # Gemini's OpenAI-compatible endpoint answers an invalid key with 400 INVALID_ARGUMENT.
+    model(lambda request: httpx.Response(400, json=[{"error": {"code": 400, "message": "Please pass a valid API key", "status": "INVALID_ARGUMENT"}}]))
+    with pytest.raises(HTTPException) as refused:
+        await policy_llm._chat([{"role": "user", "content": "hi"}])
+    assert "POLICY_LLM_API_KEY" in refused.value.detail
+
+
+@pytest.mark.parametrize(
+    ("base_url", "sends_temperature"),
+    [("https://api.anthropic.com/v1/", False), ("https://generativelanguage.googleapis.com/v1beta/openai/", True), ("https://llm.example.com/v1", True)],
+)
+async def test_temperature_is_left_out_only_for_anthropic(model, monkeypatch, base_url, sends_temperature):
+    import json
+
+    monkeypatch.setattr(get_settings(), "policy_llm_base_url", base_url)
+    seen = {}
+
+    def answer(request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"rules": []}'}}]})
+
+    model(answer)
+    try:
+        await policy_llm._chat([{"role": "user", "content": "hi"}])
+    except HTTPException:
+        pass  # Whether the answer parses is not what this test is about.
+    assert ("temperature" in seen) is sends_temperature
+    assert seen["model"] == "some-model"
+
+
+async def test_another_400_still_points_at_the_model(model):
+    model(lambda request: httpx.Response(400, json={"error": {"message": "Unknown model: some-model"}}))
+    with pytest.raises(HTTPException) as refused:
+        await policy_llm._chat([{"role": "user", "content": "hi"}])
+    assert "rejected the request" in refused.value.detail
+    assert "POLICY_LLM_MODEL" in refused.value.detail

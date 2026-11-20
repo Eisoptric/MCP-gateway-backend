@@ -270,7 +270,8 @@ def _model_refused(status_code: int, body: str) -> HTTPException:
         settings.policy_llm_model,
         redact(body, settings.policy_llm_api_key)[:500],
     )
-    if status_code in (401, 403):
+    # Gemini answers a bad key with 400, not 401, so the provider's text decides.
+    if status_code in (401, 403) or (status_code == 400 and "api key" in body.lower()):
         detail = f"Policy model rejected the API key (HTTP {status_code}). Check POLICY_LLM_API_KEY."
     elif status_code == 404:
         detail = "Policy model endpoint or model not found (HTTP 404). Check POLICY_LLM_BASE_URL and POLICY_LLM_MODEL."
@@ -285,6 +286,18 @@ def _model_refused(status_code: int, body: str) -> HTTPException:
     return HTTPException(status.HTTP_502_BAD_GATEWAY, detail)
 
 
+def _sampling() -> dict[str, Any]:
+    """temperature 0 where the provider takes it.
+
+    Anthropic's OpenAI-compatible endpoint refuses `temperature` for its current models with a 400,
+    so a request there leaves it out.
+    """
+    from urllib.parse import urlparse
+
+    host = (urlparse(get_settings().policy_llm_base_url).hostname or "").lower()
+    return {} if host == "api.anthropic.com" else {"temperature": 0}
+
+
 def _model_unreachable(exc: httpx.HTTPError) -> HTTPException:
     settings = get_settings()
     logger.warning("Policy model unreachable at %s: %s", settings.policy_llm_base_url, type(exc).__name__)
@@ -296,7 +309,7 @@ def _model_unreachable(exc: httpx.HTTPError) -> HTTPException:
 async def _chat(messages: list[dict[str, str]]) -> dict[str, Any]:
     settings = get_settings()
     base = settings.policy_llm_base_url.rstrip("/")
-    payload = {"model": settings.policy_llm_model, "temperature": 0, "max_tokens": 4096, "messages": messages}
+    payload = {"model": settings.policy_llm_model, **_sampling(), "max_tokens": 4096, "messages": messages}
     try:
         async with httpx.AsyncClient(timeout=90) as client:
             response = await client.post(
@@ -374,7 +387,7 @@ async def _iter_deltas(messages: list[dict[str, str]]):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "No policy model is configured")
     payload = {
         "model": settings.policy_llm_model,
-        "temperature": 0,
+        **_sampling(),
         "max_tokens": 4096,
         "stream": True,
         "messages": messages,
