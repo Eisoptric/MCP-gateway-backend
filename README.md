@@ -290,6 +290,7 @@ Settings come from the environment (or `.env`); see `.env.example`. App settings
 | `SEED_USER_EMAIL` | empty | An email sign-up at this address becomes the first platform admin, only while the platform has none. Empty: no one is promoted. |
 | `SKIP_DB_BOOTSTRAP` | `false` | `true` skips seeding and the startup database work |
 | `SESSION_TTL_DAYS` | `7` | Session lifetime; a session also ends after 24 hours without a request |
+| `WEBAUTHN_RP_ID` | empty (`eisoptric.com` on Cloud Run) | Passkey relying party. Empty: each trusted origin's own host, so a passkey works only where it was added. A parent domain lets one passkey work on every trusted origin under it (the console and ops). Changing it invalidates existing passkeys. |
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://console.eisoptric.com,https://ops.eisoptric.com` | Allowed browser origins, also trusted for cookie requests and passkeys |
 | `IN_PROCESS_RUNTIME` | `false` | Local development and tests only: executes runs in process, keeps rate limits and MCP sessions in memory, returns invite tokens |
 | `POLICY_DEFAULT_DENY` | `true` | Deny a call when no policy applies |

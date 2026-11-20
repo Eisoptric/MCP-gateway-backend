@@ -290,6 +290,7 @@ Agent 錢包與 x402 付款已經移除（遷移 `039_drop_wallets_x402`）。
 | `SEED_USER_EMAIL` | 空 | 用這個地址以 Email 註冊的帳號，在平台還沒有任何管理員時成為第一位平台管理員。留空則不升級任何人。 |
 | `SKIP_DB_BOOTSTRAP` | `false` | `true` 會略過初始資料與啟動時的資料庫工作 |
 | `SESSION_TTL_DAYS` | `7` | 工作階段的有效天數；24 小時沒有請求的工作階段也會結束 |
+| `WEBAUTHN_RP_ID` | 空（Cloud Run 上為 `eisoptric.com`） | Passkey 的 relying party。留空時是每個受信任來源自己的主機，passkey 只能在新增它的網址使用。設成上層網域時，同一把 passkey 可以在它底下每個受信任的來源使用（主控台與 ops）。修改它會讓既有的 passkey 失效。 |
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://console.eisoptric.com,https://ops.eisoptric.com` | 允許的瀏覽器來源，也是 cookie 請求與 passkey 信任的來源 |
 | `IN_PROCESS_RUNTIME` | `false` | 只用於本機開發與測試：在行程內執行 run，速率限制與 MCP 工作階段存在記憶體中，回傳邀請 token |
 | `POLICY_DEFAULT_DENY` | `true` | 沒有適用政策時拒絕呼叫 |

@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     session_ttl_days: int = 7
     # The address that becomes the first platform admin when it signs up by email. Empty: none.
     seed_user_email: str = ""
+    # The passkey relying party. Empty: each origin's own host, so passkeys are per address. A parent
+    # domain (eisoptric.com) lets one passkey work on every trusted origin under it.
+    webauthn_rp_id: str = ""
     cors_origins: str = "http://localhost:3000,http://localhost:3001,https://console.eisoptric.com,https://ops.eisoptric.com"
     in_process_runtime: bool = False
     policy_default_deny: bool = True

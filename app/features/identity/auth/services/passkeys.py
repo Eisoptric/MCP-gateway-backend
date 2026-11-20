@@ -39,6 +39,11 @@ def relying_party(request: Request) -> tuple[str, str]:
     host = urlparse(origin).hostname if origin in allowed else None
     if not host:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This browser cannot use a passkey")
+    # A shared relying party, when the origin sits under it. The origin itself is still checked
+    # against CORS_ORIGINS above, so only trusted addresses can use the passkey.
+    shared = (get_settings().webauthn_rp_id or "").strip().lower().strip(".")
+    if shared and (host == shared or host.endswith("." + shared)):
+        return shared, origin
     return host, origin
 
 
