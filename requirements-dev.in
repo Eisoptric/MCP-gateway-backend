@@ -12,5 +12,5 @@ pytest-asyncio==1.4.1.post1
 # five minutes before the process ends. Stay on 0.21 until the test engine setup is changed for it.
 aiosqlite==0.21.0
 # Lint and dependency audit, both run in CI (.github/workflows/test.yml).
-ruff==0.17.3
+ruff==0.17.5
 pip-audit==2.10.1
