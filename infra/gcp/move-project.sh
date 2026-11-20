@@ -282,6 +282,8 @@ sys.stdout.write(f"postgresql+asyncpg://gateway:{password}@/gateway?host=/clouds
     project_role "${runtime}" roles/monitoring.metricWriter
   done
   secret_reader gateway-frontend-runtime ORIGIN_AUTH_SECRET
+  # The operator console checks the same origin header as the customer console.
+  secret_reader gateway-dashboard-runtime ORIGIN_AUTH_SECRET
   secret_reader gateway-frontend-runtime CONSOLE_PROXY_SECRET
 
   bind_repo github-deployer-backend "${BACKEND_REPO}"
