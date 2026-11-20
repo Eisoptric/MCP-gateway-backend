@@ -328,22 +328,74 @@ async def test_password_reauth_is_rate_limited(client):
     assert codes[8] == 429
 
 
-# M-22: the seed admin is not re-promoted.
+# M-22: the first platform admin comes from an email sign-up at SEED_USER_EMAIL, and only once.
+
+
+async def _sign_up(client, monkeypatch, email: str):
+    sent = {}
+
+    async def capture(_email, code, _locale=None):
+        sent["code"] = code
+
+    monkeypatch.setattr("app.features.identity.auth.controllers.auth.send_signup_code", capture)
+    payload = {"name": "First", "email": email, "password": "password1"}
+    requested = await client.post("/auth/register/code", json=payload)
+    assert requested.status_code == 204, requested.text
+    return await client.post("/auth/register", json={**payload, "code": sent["code"]})
+
+
+async def _set_test_admin(is_admin: bool) -> None:
+    session, generator, user = await _rick()
+    try:
+        user.is_platform_admin = is_admin
+        await session.commit()
+    finally:
+        await generator.aclose()
 
 
 @pytest.mark.asyncio
-async def test_seed_admin_demotion_sticks(client):
-    from app.features.identity.auth.services.auth_service import auth_service
-
-    session, generator, user = await _rick()
+async def test_seed_email_sign_up_becomes_the_first_platform_admin(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "seed_user_email", " First@Example.com ")
+    await _set_test_admin(False)
     try:
-        user.is_platform_admin = False
-        await session.flush()
-        await auth_service.ensure_seed_user(session)
-        assert user.is_platform_admin is False
+        created = await _sign_up(client, monkeypatch, "first@example.com")
+        assert created.status_code == 201, created.text
+        assert created.json()["user"]["is_platform_admin"] is True
     finally:
-        await session.rollback()
-        await generator.aclose()
+        await _set_test_admin(True)
+
+
+@pytest.mark.asyncio
+async def test_seed_email_is_not_promoted_while_an_admin_exists(client, monkeypatch):
+    # A demoted or deleted seed account must not get the role back by signing up again.
+    monkeypatch.setattr(get_settings(), "seed_user_email", "first@example.com")
+    created = await _sign_up(client, monkeypatch, "first@example.com")
+    assert created.status_code == 201, created.text
+    assert created.json()["user"]["is_platform_admin"] is False
+
+
+@pytest.mark.asyncio
+async def test_other_sign_ups_are_never_promoted(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "seed_user_email", "first@example.com")
+    await _set_test_admin(False)
+    try:
+        created = await _sign_up(client, monkeypatch, "someone-else@example.com")
+        assert created.status_code == 201, created.text
+        assert created.json()["user"]["is_platform_admin"] is False
+    finally:
+        await _set_test_admin(True)
+
+
+@pytest.mark.asyncio
+async def test_no_seed_email_promotes_no_one(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "seed_user_email", "")
+    await _set_test_admin(False)
+    try:
+        created = await _sign_up(client, monkeypatch, "first@example.com")
+        assert created.status_code == 201, created.text
+        assert created.json()["user"]["is_platform_admin"] is False
+    finally:
+        await _set_test_admin(True)
 
 
 # L-09: a cookie-only write must come from our own origin.

@@ -125,11 +125,11 @@ This repo is the API. The console and the admin dashboard are separate repositor
 ```bash
 cp .env.example .env
 # Fill in POSTGRES_PASSWORD and REDIS_PASSWORD (for example `openssl rand -hex 16`),
-# SEED_USER_EMAIL and SEED_USER_PASSWORD, and add GATEWAY_KMS_KEY.
+# SEED_USER_EMAIL, RESEND_API_KEY and RESEND_FROM, and add GATEWAY_KMS_KEY.
 docker compose up --build
 ```
 
-Set `SEED_USER_EMAIL` and `SEED_USER_PASSWORD` in `.env` before the first boot. Those values create the platform admin. Do not commit them. Compose refuses to start until `POSTGRES_PASSWORD` and `REDIS_PASSWORD` are set.
+Set `SEED_USER_EMAIL` in `.env`, then sign up at that address in the console. The emailed code proves the address, and the account becomes the platform admin if the platform has none yet. Sign-up sends the code through Resend, so `RESEND_API_KEY` and `RESEND_FROM` must be set. No admin password is ever configured. Compose refuses to start until `POSTGRES_PASSWORD` and `REDIS_PASSWORD` are set.
 
 - API: http://localhost:8000
 - Docs: http://localhost:8000/docs (closed on Cloud Run, or anywhere with `EXPOSE_API_DOCS=false`)
@@ -144,7 +144,7 @@ Postgres and Redis listen on 127.0.0.1 only. The API container runs as an unpriv
 ```bash
 TOKEN=$(curl -s -X POST localhost:8000/auth/login \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"$SEED_USER_EMAIL\",\"password\":\"$SEED_USER_PASSWORD\"}" | python -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+  -d "{\"email\":\"$SEED_USER_EMAIL\",\"password\":\"$YOUR_PASSWORD\"}" | python -c 'import sys,json; print(json.load(sys.stdin)["token"])')
 
 curl -s localhost:8000/auth/me -H "Authorization: Bearer $TOKEN"
 ```
@@ -286,9 +286,8 @@ Settings come from the environment (or `.env`); see `.env.example`. App settings
 | `LOG_LEVEL` | `INFO` | Lowest level written to stdout |
 | `LOG_FORMAT` | `json` on Cloud Run, `text` elsewhere | One JSON object per line with `severity`, `request_id` and the Cloud Trace id, or plain text. Each request is logged once with method, path, status and duration; the query string is never logged. |
 | `DEFAULT_ORG_ID` | `org_default` | ID of the bootstrap organization |
-| `DEFAULT_ACTOR_ID` | `user_operator` | ID of the bootstrap platform admin |
-| `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` | empty | Create the platform admin on first boot; empty skips seeding. On Cloud Run the password must be 16 characters or more. |
-| `SEED_USER_NAME` | `Admin` | Its display name |
+| `DEFAULT_ACTOR_ID` | `user_operator` | ID of the platform admin in a database seeded before sign-up promotion |
+| `SEED_USER_EMAIL` | empty | An email sign-up at this address becomes the first platform admin, only while the platform has none. Empty: no one is promoted. |
 | `SKIP_DB_BOOTSTRAP` | `false` | `true` skips seeding and the startup database work |
 | `SESSION_TTL_DAYS` | `7` | Session lifetime; a session also ends after 24 hours without a request |
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:3001,https://console.eisoptric.com,https://ops.eisoptric.com` | Allowed browser origins, also trusted for cookie requests and passkeys |

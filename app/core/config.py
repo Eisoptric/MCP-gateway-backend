@@ -14,9 +14,8 @@ class Settings(BaseSettings):
     default_actor_id: str = "user_operator"
     skip_db_bootstrap: bool = False
     session_ttl_days: int = 7
+    # The address that becomes the first platform admin when it signs up by email. Empty: none.
     seed_user_email: str = ""
-    seed_user_name: str = "Admin"
-    seed_user_password: str = ""
     cors_origins: str = "http://localhost:3000,http://localhost:3001,https://console.eisoptric.com,https://ops.eisoptric.com"
     in_process_runtime: bool = False
     policy_default_deny: bool = True

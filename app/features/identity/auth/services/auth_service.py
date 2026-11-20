@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.core.ids import new_id, utcnow
-from app.models import Organization, PasswordReset, User
+from app.models import PasswordReset, User
 from app.features.identity.auth.models.session import AuthSession
 from app.features.identity.auth.services.throttle import consume
 
@@ -501,37 +501,32 @@ class AuthService:
         if len(password) < 8:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Password must be at least 8 characters")
 
-    async def ensure_seed_user(self, session: AsyncSession) -> None:
-        existing = await session.get(User, settings.default_actor_id)
-        if existing is not None:
-            # Created once. A later demotion or offboarding must stick, so never re-promote here.
-            return
+    async def promote_seed_admin(self, session: AsyncSession, user: User) -> bool:
+        """Make a new account the first platform admin when its address is SEED_USER_EMAIL.
+
+        Called only after an email sign-up, whose code proved the address. It runs only while the
+        platform has no admin at all, so a later demotion or a second account at the same address
+        never brings the role back.
+        """
         email = (settings.seed_user_email or "").strip().lower()
-        password = settings.seed_user_password or ""
-        if not email or not password:
-            return
-        import os
-
-        if os.environ.get("K_SERVICE", "").strip() and len(password) < 16:
-            import logging
-
-            logging.getLogger(__name__).error("SEED_USER_PASSWORD must be at least 16 characters; seed admin not created")
-            return
-        org = await session.get(Organization, settings.default_org_id)
-        if org is None:
-            return
-        session.add(
-            User(
-                id=settings.default_actor_id,
-                organization_id=org.id,
-                email=email,
-                name=(settings.seed_user_name or "Admin").strip() or "Admin",
-                password_hash=await in_thread(hash_password, password),
-                status="active",
-                is_platform_admin=True,
-            )
-        )
+        if not email or user.email != email or user.is_platform_admin:
+            return False
+        existing = await session.execute(select(User.id).where(User.is_platform_admin.is_(True)).limit(1))
+        if existing.scalar_one_or_none() is not None:
+            return False
+        user.is_platform_admin = True
         await session.flush()
+        from app.core.enums import ActorType
+        from app.features.execution.activity.services.audit_service import audit_service
 
+        await audit_service.log(
+            session,
+            event="platform_admin_bootstrapped",
+            actor_type=ActorType.USER,
+            actor_id=user.id,
+            organization_id=user.organization_id,
+            payload={"email": user.email, "via": "seed_email_signup"},
+        )
+        return True
 
 auth_service = AuthService()

@@ -7,6 +7,8 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.ids import new_id
 from app.db.seed import seed_if_empty
+from app.features.identity.auth.services.auth_service import hash_password
+from app.features.organization.org.services.mapping_service import mapping_service
 from app.models import Agent, McpServer, Policy, PolicyRule, Tool, User
 
 settings = get_settings()
@@ -80,11 +82,34 @@ REFUND_RULES = [
 ]
 
 
+# The platform admin every test signs in as. Production has no password seed: the first admin signs
+# up by email at SEED_USER_EMAIL. Tests create theirs directly, with the old fixed id and password.
+TEST_ADMIN_EMAIL = "rick@example.com"
+TEST_ADMIN_PASSWORD = "gateway"
+
+
+async def ensure_test_admin(session: AsyncSession) -> User:
+    actor = await session.get(User, settings.default_actor_id)
+    if actor is None:
+        actor = User(
+            id=settings.default_actor_id,
+            organization_id=settings.default_org_id,
+            email=TEST_ADMIN_EMAIL,
+            name="Rick",
+            password_hash=hash_password(TEST_ADMIN_PASSWORD),
+            status="active",
+            is_platform_admin=True,
+        )
+        session.add(actor)
+        await session.flush()
+    await mapping_service.ensure_bootstrap_employee(session, actor)
+    return actor
+
+
 async def seed_test_catalog(session: AsyncSession) -> None:
     await seed_if_empty(session)
-    actor = await session.get(User, settings.default_actor_id)
-    if actor is not None:
-        actor.totp_enabled = True
+    actor = await ensure_test_admin(session)
+    actor.totp_enabled = True
 
     if await session.get(Agent, "agent_customer_ops") is None:
         session.add(

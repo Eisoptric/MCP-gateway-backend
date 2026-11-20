@@ -20,8 +20,8 @@ RUNTIME_SA="${RUNTIME_SA_NAME}@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
 # account only, which is what `gcloud run deploy --service-account` needs.
 DEPLOYER_SA="${DEPLOYER_SA:-}"
 # Secrets the API and worker mount (deploy-cloud-run.yml). Add REDIS_URL_SECRET /
-# REDIS_CA_SECRET names when those variables are used, and SEED_USER_EMAIL /
-# SEED_USER_PASSWORD only while SEED_ON_DEPLOY is true.
+# REDIS_CA_SECRET names when those variables are used, and SEED_USER_EMAIL only while
+# SEED_ON_DEPLOY is true.
 RUNTIME_SECRETS="${RUNTIME_SECRETS:-DATABASE_URL REDIS_URL GATEWAY_GITHUB_OAUTH_CLIENT_ID GATEWAY_GITHUB_OAUTH_CLIENT_SECRET GATEWAY_GOOGLE_OAUTH_CLIENT_ID GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET RESEND_API_KEY RESEND_FROM POLICY_LLM_BASE_URL POLICY_LLM_API_KEY POLICY_LLM_MODEL ORIGIN_AUTH_SECRET}"
 
 # GATEWAY_KMS_KEY names a key version; IAM is granted on the key that owns it.

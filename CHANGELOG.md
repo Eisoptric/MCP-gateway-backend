@@ -11,6 +11,7 @@ Notable changes to MCP Gateway Backend. The format follows [Keep a Changelog](ht
 - `infra/gcp/move-project.sh` builds the deployment in a new Google Cloud project (`eisoptric-prod`) and copies the secrets that still hold from the old one, renamed from `SATURN_` to `GATEWAY_`. The database and Redis start empty.
 - **No load balancer.** On Cloudflare's free plan the API deploys with ingress `all` behind the origin secret Cloudflare adds. `infra/gcp/cloudflare-ingress.sh` and the `CLOUD_RUN_INGRESS` variable are gone, and the deploy no longer warns about ingress.
 - Settings are read from `GATEWAY_*` (was `SATURN_*`, for example `GATEWAY_KMS_KEY`, `GATEWAY_GOOGLE_OAUTH_CLIENT_ID`), headers are `X-Eisoptric-*` and `Eisoptric-Webhook-*`, the cookies are `eisoptric_session` and `eisoptric_oauth`, the OAuth scope is `eisoptric.mcp`, and an agent resubmits an approved call with `gatewayRunId` (was `saturnRunId`). The default organization id is `org_default` (was `org_saturn`): an existing deployment sets `DEFAULT_ORG_ID=org_saturn` to keep its organization.
+- **Breaking: no admin password is seeded.** `SEED_USER_PASSWORD` and `SEED_USER_NAME` are gone, and startup creates only the default organization. The first platform admin signs up by email at `SEED_USER_EMAIL`: the emailed code proves the address, and the account becomes platform admin while the platform has none, recorded as `platform_admin_bootstrapped`. Once any platform admin exists nothing is promoted again, so a demotion sticks. A database seeded earlier keeps its admin.
 
 ### Added
 
