@@ -15,6 +15,7 @@ Notable changes to MCP Gateway Backend. The format follows [Keep a Changelog](ht
 
 ### Added
 
+- `WEBAUTHN_RP_ID` sets one passkey relying party for every trusted origin under it. Cloud Run deploys with `eisoptric.com`, so a passkey added in the console also signs in to ops. Each origin is still checked against `CORS_ORIGINS`. Passkeys added before this belong to their own host and must be added again.
 - `mcp.resend.com` (Resend) is an approved MCP host. It signs in with OAuth through `api.resend.com`, which takes dynamic client registration and PKCE.
 - Organization admins approve their own MCP hosts at `/mcp-servers/allowed-hosts`, beside Eisoptric's `ALLOWED_MCP_HOSTS`. Custom servers on those hosts can now be connected; before, any host outside Eisoptric's list was refused. Approving a host needs a recent sign-in, and the change is recorded. A removed host stops calls at once. Migration `067_mcp_allowed_hosts` adds the table.
 - At most 256 upstream HTTP clients are kept, one per host. The least recently used one is closed 180 seconds after it is retired, so a call still using it can finish.
