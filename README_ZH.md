@@ -266,7 +266,7 @@ curl -s -X POST localhost:8000/mcp-servers \
 
 Eisoptric 是免費的，沒有方案或計費路由。每個帳號都有全部功能；個人帳號與團隊組織只差在是否有成員、邀請與群組。
 
-Agent 錢包與 x402 付款先前已移除（遷移 `039_drop_wallets_x402`），未使用的方案、訂閱與保留付款路由也已在 `068_retire_plans_and_saturn_agent_fields` 移除。
+Agent 錢包與 x402 付款先前已移除（遷移 `039_drop_wallets_x402`），未使用的方案、訂閱與保留付款路由也已在 `068_retire_plans_and_saturn` 移除。
 
 捐款透過 [GitHub Sponsors](https://github.com/sponsors/eisoptric)。
 

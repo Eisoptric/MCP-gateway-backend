@@ -5,7 +5,7 @@ and runtime_version, or agents.model. The previous revision still writes them wh
 out, so the columns stay and only lose NOT NULL; a later migration drops them once no deployed
 revision uses them (docs/migrations.md, "expand, then contract"). Both tables are small.
 
-Revision ID: 068_retire_plans_and_saturn_agent_fields
+Revision ID: 068_retire_plans_and_saturn
 Revises: 067_mcp_allowed_hosts
 Create Date: 2026-11-21
 
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import inspect
 
-revision: str = "068_retire_plans_and_saturn_agent_fields"
+revision: str = "068_retire_plans_and_saturn"
 down_revision: Union[str, Sequence[str], None] = "067_mcp_allowed_hosts"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

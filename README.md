@@ -266,7 +266,7 @@ Reviewers use `GET /approvals` and `POST /approvals/{id}/approve`, `/reject` or 
 
 Eisoptric is free, with no plans or billing routes. Every account has every feature; personal accounts and team organizations differ only in whether they have members, invites and groups.
 
-Agent wallets and x402 payments were removed earlier (migration `039_drop_wallets_x402`), and the unused plan, subscription and placeholder payment routes were retired in `068_retire_plans_and_saturn_agent_fields`.
+Agent wallets and x402 payments were removed earlier (migration `039_drop_wallets_x402`), and the unused plan, subscription and placeholder payment routes were retired in `068_retire_plans_and_saturn`.
 
 Donations go through [GitHub Sponsors](https://github.com/sponsors/eisoptric).
 
