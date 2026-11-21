@@ -114,13 +114,26 @@ async def test_agent_sign_in_page_accepts_a_passkey_through_the_console(client):
     )
     assert refused.status_code == 400
 
+    # The console's hand-off page has Referrer-Policy: no-referrer, so its form arrives with
+    # Origin: null. The origin signed inside the answer stands in, and must be a trusted one.
+    options = await client.post(
+        "/auth/login/passkey/options", json={"challenge": handoff["challenge"]}, headers={"Origin": ORIGIN}
+    )
+    foreign = await client.post(
+        "/oauth/login/passkey",
+        data={**handoff, "credential": json.dumps(passkey.answer(options.json(), "https://evil.example"))},
+        headers={"Origin": "null"},
+        follow_redirects=False,
+    )
+    assert foreign.status_code == 400
+
     options = await client.post(
         "/auth/login/passkey/options", json={"challenge": handoff["challenge"]}, headers={"Origin": ORIGIN}
     )
     signed = await client.post(
         "/oauth/login/passkey",
         data={**handoff, "credential": json.dumps(passkey.answer(options.json()))},
-        headers={"Origin": ORIGIN},
+        headers={"Origin": "null"},
         follow_redirects=False,
     )
     assert signed.status_code == 303, signed.text

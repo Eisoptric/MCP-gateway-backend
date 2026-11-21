@@ -33,8 +33,23 @@ CHALLENGE_TTL = timedelta(minutes=5)
 settings = get_settings()
 
 
-def relying_party(request: Request) -> tuple[str, str]:
+def _signed_origin(credential: dict | None) -> str:
+    """The origin the browser wrote into a passkey answer's clientDataJSON, which the passkey signs."""
+    try:
+        raw = (credential or {}).get("response", {}).get("clientDataJSON", "")
+        return str(json.loads(base64url_to_bytes(raw)).get("origin", "")).rstrip("/")
+    except (AttributeError, TypeError, ValueError):
+        return ""
+
+
+def relying_party(request: Request, credential: dict | None = None) -> tuple[str, str]:
     origin = request.headers.get("origin", "").rstrip("/")
+    if origin == "null" and credential is not None:
+        # A form posted from a page with Referrer-Policy: no-referrer (the console's /connect-passkey
+        # hand-off) arrives with Origin: null. The answer itself carries the page's origin, signed
+        # by the passkey, so another site cannot produce one for a trusted origin. It must still be
+        # trusted below, and verification checks it against the signature.
+        origin = _signed_origin(credential)
     allowed = {item.strip().rstrip("/") for item in settings.cors_origins.split(",") if item.strip()}
     host = urlparse(origin).hostname if origin in allowed else None
     if not host:
@@ -174,7 +189,7 @@ class PasskeyService:
         return json.loads(options_to_json(options))
 
     async def authenticate(self, session: AsyncSession, request: Request, token: str, credential: dict) -> User:
-        rp_id, origin = relying_party(request)
+        rp_id, origin = relying_party(request, credential if isinstance(credential, dict) else None)
         user = await mfa_service.user_for_challenge(session, token)
         credential_id = credential.get("id") if isinstance(credential, dict) else None
         if not isinstance(credential_id, str) or not credential_id:
