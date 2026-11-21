@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.features.execution.approvals.services.expiration import save_window, window_minutes
-from app.features.identity.auth.controllers.deps import ProPlan, SessionDep, TeamRead, TeamWrite
+from app.features.identity.auth.controllers.deps import SessionDep, TeamRead, TeamWrite
 from app.features.webhooks.models.webhook import WebhookDelivery, WebhookEndpoint
 from app.features.webhooks.services.webhook_service import (
     create_endpoint,
@@ -149,13 +149,13 @@ async def patch_approval_window(body: WindowUpdate, session: SessionDep, member:
 
 
 @router.get("/webhooks", response_model=list[WebhookRead])
-async def get_webhooks(session: SessionDep, member: TeamRead, _pro: ProPlan):
+async def get_webhooks(session: SessionDep, member: TeamRead):
     rows = await list_endpoints(session, member.organization_id)
     return [_endpoint_read(row) for row in rows]
 
 
 @router.post("/webhooks", response_model=WebhookCreated, status_code=201)
-async def post_webhook(body: WebhookCreate, session: SessionDep, member: TeamWrite, _pro: ProPlan):
+async def post_webhook(body: WebhookCreate, session: SessionDep, member: TeamWrite):
     row, secret = await create_endpoint(session, member.organization_id, url=body.url, events=body.events)
     created = _endpoint_read(row, secret)
     assert isinstance(created, WebhookCreated)
@@ -163,7 +163,7 @@ async def post_webhook(body: WebhookCreate, session: SessionDep, member: TeamWri
 
 
 @router.patch("/webhooks/{endpoint_id}", response_model=WebhookRead)
-async def patch_webhook(endpoint_id: str, body: WebhookUpdate, session: SessionDep, member: TeamWrite, _pro: ProPlan):
+async def patch_webhook(endpoint_id: str, body: WebhookUpdate, session: SessionDep, member: TeamWrite):
     row = await update_endpoint(
         session,
         member.organization_id,
@@ -176,7 +176,7 @@ async def patch_webhook(endpoint_id: str, body: WebhookUpdate, session: SessionD
 
 
 @router.get("/webhooks/{endpoint_id}/secret")
-async def download_secret(endpoint_id: str, session: SessionDep, member: TeamWrite, _pro: ProPlan):
+async def download_secret(endpoint_id: str, session: SessionDep, member: TeamWrite):
     secret = await reveal_secret(session, member.organization_id, endpoint_id)
     filename = f"eisoptric-webhook-{endpoint_id}.txt"
     return Response(
@@ -187,13 +187,13 @@ async def download_secret(endpoint_id: str, session: SessionDep, member: TeamWri
 
 
 @router.post("/webhooks/{endpoint_id}/rotate", response_model=WebhookSecret)
-async def post_rotate(endpoint_id: str, session: SessionDep, member: TeamWrite, _pro: ProPlan):
+async def post_rotate(endpoint_id: str, session: SessionDep, member: TeamWrite):
     secret = await rotate_secret(session, member.organization_id, endpoint_id)
     return WebhookSecret(secret=secret)
 
 
 @router.post("/webhooks/{endpoint_id}/test", response_model=DeliveryRead)
-async def post_test(endpoint_id: str, session: SessionDep, member: TeamWrite, _pro: ProPlan):
+async def post_test(endpoint_id: str, session: SessionDep, member: TeamWrite):
     from app.core.rate_limit import allow
 
     # A test is a signed POST to an address the organization chose, retried like any delivery.
@@ -205,13 +205,13 @@ async def post_test(endpoint_id: str, session: SessionDep, member: TeamWrite, _p
 
 
 @router.get("/webhooks/{endpoint_id}/deliveries", response_model=list[DeliveryRead])
-async def get_deliveries(endpoint_id: str, session: SessionDep, member: TeamRead, _pro: ProPlan):
+async def get_deliveries(endpoint_id: str, session: SessionDep, member: TeamRead):
     rows = await list_deliveries(session, member.organization_id, endpoint_id)
     return [_delivery_read(row) for row in rows]
 
 
 @router.post("/webhooks/deliveries/{delivery_id}/retry", response_model=DeliveryRead)
-async def post_retry(delivery_id: str, session: SessionDep, member: TeamWrite, _pro: ProPlan):
+async def post_retry(delivery_id: str, session: SessionDep, member: TeamWrite):
     from app.core.rate_limit import allow
 
     # Each retry restarts the attempt count, so it is limited rather than repeatable at will.
@@ -222,7 +222,7 @@ async def post_retry(delivery_id: str, session: SessionDep, member: TeamWrite, _
 
 
 @router.post("/webhooks/dispatch", response_model=DispatchRead)
-async def post_dispatch(session: SessionDep, member: TeamWrite, _pro: ProPlan):
+async def post_dispatch(session: SessionDep, member: TeamWrite):
     # Only the caller's own queue; the global queue belongs to the background worker.
     processed = await deliver_due(session, organization_id=member.organization_id)
     return DispatchRead(processed=processed)

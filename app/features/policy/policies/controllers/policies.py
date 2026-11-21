@@ -9,14 +9,10 @@ from app.features.identity.auth.controllers.deps import (
     CurrentUser,
     PoliciesRead,
     PoliciesWrite,
-    ProPlan,
-    GatewayCloud,
     SessionDep,
 )
 from app.core.enums import AuditEvent
 from app.features.execution.activity.services.change_log import record_change
-from app.models import Organization
-from app.features.organization.org.services.plans import allows_pro
 from app.schemas import (
     PolicyActivate,
     PolicyCreate,
@@ -33,22 +29,19 @@ router = APIRouter(prefix="/policies", tags=["policies"])
 
 @router.get("", response_model=list[PolicyRead])
 async def list_policies(session: SessionDep, user: CurrentUser, _access: PoliciesRead):
-    org = await session.get(Organization, user.organization_id)
-    if org is None or not allows_pro(org.plan):
-        return []
     policies = await policy_service.list_policies(session, user.organization_id)
     return [serialize_policy(policy) for policy in policies]
 
 
 @router.get("/{policy_id}", response_model=PolicyRead)
-async def get_policy(policy_id: str, session: SessionDep, user: CurrentUser, _access: PoliciesRead, _pro: ProPlan):
+async def get_policy(policy_id: str, session: SessionDep, user: CurrentUser, _access: PoliciesRead):
     policy = await policy_service.get_policy(session, policy_id, user.organization_id)
     return serialize_policy(policy)
 
 
 @router.post("/generate", response_model=PolicyRead, status_code=201)
 async def generate_policy(
-    body: PolicyGenerate, session: SessionDep, user: CurrentUser, _access: PoliciesWrite, _cloud: GatewayCloud, _pro: ProPlan
+    body: PolicyGenerate, session: SessionDep, user: CurrentUser, _access: PoliciesWrite
 ):
     await enforce_llm_quota(user.id, user.organization_id)
     policy = await policy_service.generate_from_set(
@@ -79,7 +72,7 @@ def _sse(payload: dict) -> str:
 
 @router.post("/generate/stream")
 async def generate_policy_stream(
-    body: PolicyGenerate, session: SessionDep, user: CurrentUser, _access: PoliciesWrite, _cloud: GatewayCloud, _pro: ProPlan
+    body: PolicyGenerate, session: SessionDep, user: CurrentUser, _access: PoliciesWrite
 ):
     await enforce_llm_quota(user.id, user.organization_id)
 
@@ -108,7 +101,7 @@ async def generate_policy_stream(
 
 @router.post("", response_model=PolicyRead, status_code=201)
 async def create_policy(
-    body: PolicyCreate, session: SessionDep, user: CurrentUser, _access: PoliciesWrite, _cloud: GatewayCloud, _pro: ProPlan
+    body: PolicyCreate, session: SessionDep, user: CurrentUser, _access: PoliciesWrite
 ):
     if not body.name.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Name is required")
@@ -124,7 +117,6 @@ async def update_policy(
     session: SessionDep,
     user: CurrentUser,
     _access: PoliciesWrite,
-    _cloud: GatewayCloud, _pro: ProPlan,
 ):
     policy = await policy_service.get_policy(session, policy_id, user.organization_id)
     before = {"status": policy.status, "version": policy.version}
@@ -144,7 +136,7 @@ async def update_policy(
 
 @router.delete("/{policy_id}", status_code=204)
 async def delete_policy(
-    policy_id: str, session: SessionDep, user: CurrentUser, _access: PoliciesWrite, _cloud: GatewayCloud, _pro: ProPlan
+    policy_id: str, session: SessionDep, user: CurrentUser, _access: PoliciesWrite
 ):
     policy = await policy_service.get_policy(session, policy_id, user.organization_id)
     await _record(session, user, AuditEvent.POLICY_DELETED, policy)
@@ -153,7 +145,7 @@ async def delete_policy(
 
 @router.post("/{policy_id}/validate")
 async def validate_policy(
-    policy_id: str, session: SessionDep, user: CurrentUser, _access: PoliciesWrite, _cloud: GatewayCloud, _pro: ProPlan
+    policy_id: str, session: SessionDep, user: CurrentUser, _access: PoliciesWrite
 ):
     policy = await policy_service.get_policy(session, policy_id, user.organization_id)
     report = await policy_service.validate_policy(session, policy)
@@ -168,7 +160,6 @@ async def activate_policy(
     session: SessionDep,
     user: CurrentUser,
     _access: PoliciesWrite,
-    _cloud: GatewayCloud, _pro: ProPlan,
 ):
     policy = await policy_service.get_policy(session, policy_id, user.organization_id)
     previous = policy.status
@@ -184,7 +175,6 @@ async def optimize_policy(
     session: SessionDep,
     user: CurrentUser,
     _access: PoliciesWrite,
-    _cloud: GatewayCloud, _pro: ProPlan,
 ):
     policy = await policy_service.get_policy(session, policy_id, user.organization_id)
     await enforce_llm_quota(user.id, user.organization_id)
@@ -198,7 +188,6 @@ async def optimize_policy_stream(
     session: SessionDep,
     user: CurrentUser,
     _access: PoliciesWrite,
-    _cloud: GatewayCloud, _pro: ProPlan,
 ):
     policy = await policy_service.get_policy(session, policy_id, user.organization_id)
     await enforce_llm_quota(user.id, user.organization_id)
@@ -227,7 +216,6 @@ async def simulate_policy(
     session: SessionDep,
     user: CurrentUser,
     _access: PoliciesRead,
-    _pro: ProPlan,
 ):
     policy = await policy_service.get_policy(session, policy_id, user.organization_id)
     if not body.tool.strip():

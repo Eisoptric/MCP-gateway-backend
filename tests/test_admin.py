@@ -34,7 +34,7 @@ async def test_onboard_org_and_manage_members(client):
             "admin_name": "Acme Admin",
             "admin_password": "password1",
             "admin_title": "Founder",
-            "plan": "enterprise",
+            "kind": "organization",
         },
     )
     assert created.status_code == 201, created.text
@@ -102,7 +102,7 @@ async def test_platform_overview_and_org_lifecycle(client):
     body = overview.json()
     assert "organizations" in body["stats"]
     assert {item["id"] for item in body["services"]} >= {"api", "gateway", "database"}
-    for key in ("plans", "tool_calls_24h", "approvals_pending", "webhook_failures_24h", "mcp_errors"):
+    for key in ("tool_calls_24h", "approvals_pending", "webhook_failures_24h", "mcp_errors"):
         assert key in body["stats"]
     assert all("uptime_30d" in item for item in body["services"])
 
@@ -113,24 +113,22 @@ async def test_platform_overview_and_org_lifecycle(client):
             "admin_email": "ops@prism.test",
             "admin_name": "Prism Ops",
             "admin_password": "password1",
-            "plan": "free",
         },
     )
     assert created.status_code == 201, created.text
     org = created.json()
-    assert org["plan"] == "free"
+    assert "plan" not in org
     assert org["kind"] == "personal"
     assert org["status"] == "active"
     assert "health" in org
 
     patched = await client.patch(
         f"/admin/orgs/{org['id']}",
-        json={"status": "suspended", "plan": "enterprise"},
+        json={"status": "suspended"},
     )
     assert patched.status_code == 200, patched.text
     assert patched.json()["status"] == "suspended"
-    assert patched.json()["plan"] == "enterprise"
-    assert patched.json()["kind"] == "organization"
+    assert "plan" not in patched.json()
 
     for removed in ("/admin/connections", "/admin/runtimes", "/admin/usage", "/admin/settings"):
         assert (await client.get(removed)).status_code == 404
@@ -245,7 +243,7 @@ async def test_a_suspended_organization_is_refused_everywhere(client):
             "admin_email": "owner@halted.test",
             "admin_name": "Owner",
             "admin_password": "password1",
-            "plan": "enterprise",
+            "kind": "organization",
         },
     )
     assert created.status_code == 201, created.text
@@ -334,49 +332,45 @@ async def test_audit_filters_and_pages(client):
     assert {"org_onboarded", "org_updated"} <= set(names.json())
 
 
-async def test_activity_counts_only_the_requested_range(client):
+async def test_activity_counts_only_the_requested_range(client, monkeypatch):
     from datetime import datetime, timedelta, timezone
 
     from sqlalchemy import update
 
     from app.db.database import get_session
     from app.main import app
-    from app.models import Action, Run
+    from app.models import AuditLog
+    from tests.gateway_calls import REFUND_POLICY, call, connected_agent, held
 
-    created = await client.post(
-        "/runs",
-        json={"agent_id": "agent_customer_ops", "input": "Refund Acme's duplicate charge."},
-    )
-    assert created.status_code == 201, created.text
-    run = created.json()
+    agent = await connected_agent(client, monkeypatch, policy=REFUND_POLICY)
+    await call(client, agent, {"amount": 50})
+    held(await call(client, agent, {"amount": 840}))
+    await call(client, agent, {"amount": 5000})
 
     def row(response):
         assert response.status_code == 200, response.text
         body = response.json()
-        return next(item for item in body["rows"] if item["tool_calls"]), body
+        return next(item for item in body["rows"] if item["organization_id"] == "org_default"), body
 
     recent, body = row(await client.get("/admin/activity"))
     assert body["days"] == 30
-    assert recent["tool_calls"] == len(run["actions"]) >= 1
-    # Every call is counted under the decision its policy made.
-    assert recent["allowed"] + recent["approval_required"] + recent["denied"] == recent["tool_calls"]
-    assert sum(item["tool_calls"] for item in body["daily"]) == recent["tool_calls"]
+    assert (recent["tool_calls"], recent["allowed"], recent["approval_required"], recent["denied"]) == (3, 1, 1, 1)
+    assert sum(item["tool_calls"] for item in body["daily"]) == 3
 
     long_ago = datetime.now(timezone.utc) - timedelta(days=30)
     session_gen = app.dependency_overrides[get_session]()
     session = await session_gen.__anext__()
     try:
-        await session.execute(update(Run).where(Run.id == run["id"]).values(created_at=long_ago))
-        await session.execute(update(Action).where(Action.run_id == run["id"]).values(created_at=long_ago))
+        await session.execute(update(AuditLog).where(AuditLog.tool == "refund.create").values(created_at=long_ago))
         await session.commit()
     finally:
         await session_gen.aclose()
 
-    last_week = (await client.get("/admin/activity", params={"days": 7})).json()
-    assert all(item["tool_calls"] == 0 for item in last_week["rows"])
-    assert last_week["daily"] == []
+    last_week, body = row(await client.get("/admin/activity", params={"days": 7}))
+    assert last_week["tool_calls"] == 0
+    assert body["daily"] == []
     wider, _ = row(await client.get("/admin/activity", params={"days": 90}))
-    assert wider["tool_calls"] == recent["tool_calls"]
+    assert wider["tool_calls"] == 3
 
     assert (await client.get("/admin/activity", params={"days": 0})).status_code == 422
     assert (await client.get("/admin/activity", params={"days": 9999})).status_code == 422

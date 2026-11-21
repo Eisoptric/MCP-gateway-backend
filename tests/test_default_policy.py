@@ -175,7 +175,7 @@ async def test_the_startup_report_names_only_agents_no_active_policy_covers(clie
     generator, session = await _db_session()
     try:
         for org in ("org_cov_a", "org_cov_b", "org_cov_c"):
-            session.add(Organization(id=org, name=org, plan="team", kind="organization"))
+            session.add(Organization(id=org, name=org, kind="organization"))
         await session.flush()
 
         def agent(org, name):

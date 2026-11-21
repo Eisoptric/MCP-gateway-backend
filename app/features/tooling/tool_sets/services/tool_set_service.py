@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.ids import new_id, utcnow
-from app.models import Agent, Employee, Organization, Tool, ToolSet, ToolSetItem, User
+from app.models import Agent, Employee, Tool, ToolSet, ToolSetItem, User
 from app.features.organization.org.services.access import allows, may_edit_agent
-from app.features.organization.org.services.plans import profile_identity, tool_set_limit
+from app.features.organization.org.services.accounts import profile_identity
 
 
 class ToolSetService:
@@ -43,14 +43,6 @@ class ToolSetService:
         label = name.strip()
         if not label:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Tool set name is required")
-        org = await session.get(Organization, user.organization_id)
-        limit = tool_set_limit(org.plan if org is not None else None)
-        if limit is not None:
-            count = await session.scalar(
-                select(func.count()).select_from(ToolSet).where(ToolSet.organization_id == user.organization_id)
-            )
-            if int(count or 0) >= limit:
-                raise HTTPException(status.HTTP_403_FORBIDDEN, "Tool set limit reached")
         existing = await session.scalar(
             select(ToolSet).where(
                 ToolSet.organization_id == user.organization_id,
@@ -126,7 +118,6 @@ class ToolSetService:
             user.id,
             user.organization_id,
             getattr(org, "kind", None),
-            getattr(org, "plan", None),
         )
         return str((agent.settings or {}).get("profile_id") or "") == expected
 

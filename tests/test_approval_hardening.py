@@ -608,25 +608,7 @@ async def test_session_ids_are_server_issued_and_owned(client):
 # L-26 / L-28 / I-09 -------------------------------------------------------------------------------
 
 
-async def test_task_notice_needs_run_access_and_safe_text(client, monkeypatch):
-    sent = []
-
-    async def capture(email, **kwargs):
-        sent.append(kwargs)
-        return True
-
-    monkeypatch.setattr("app.features.identity.auth.services.notices.send_notice", capture)
-    assert (await client.patch("/auth/notices", json={"approval": False, "execute": False, "audit": False})).status_code == 200
-    created = await client.post("/runs", json={"agent_id": "agent_customer_ops", "input": "Refund 50 for Acme"})
-    assert created.status_code == 201, created.text
-    run_id = created.json()["id"]
-    people = await _people(client)
-    viewer = await client.post(f"/runs/{run_id}/notice", headers=_auth(people[3][1]), json={"status": "completed"})
-    assert viewer.status_code in {403, 404}, viewer.text
-    missing = await client.post("/runs/run_missing/notice", json={"status": "failed"})
-    assert missing.status_code == 404, missing.text
-    too_long = await client.post(f"/runs/{run_id}/notice", json={"status": "completed", "summary": "x " * 200})
-    assert too_long.status_code == 422, too_long.text
+def test_task_summaries_never_carry_links_or_markup():
     from app.features.identity.auth.services.notices import _summary_text
 
     assert _summary_text("Refund sent to Acme") == "Refund sent to Acme"
@@ -636,10 +618,11 @@ async def test_task_notice_needs_run_access_and_safe_text(client, monkeypatch):
     assert _summary_text("<b>urgent</b>") == ""
 
 
-async def test_approve_with_malformed_json_is_a_400(client):
-    created = await client.post("/runs", json={"agent_id": "agent_customer_ops", "input": "Refund Acme's duplicate charge."})
-    assert created.status_code == 201, created.text
-    approval_id = created.json()["approval_id"]
+async def test_approve_with_malformed_json_is_a_400(client, monkeypatch):
+    from tests.gateway_calls import REFUND_POLICY, call, connected_agent, held
+
+    agent = await connected_agent(client, monkeypatch, policy=REFUND_POLICY)
+    approval_id, _run_id = held(await call(client, agent, {"amount": 840}))
     broken = await client.post(
         f"/approvals/{approval_id}/approve",
         content=b"{not json",
@@ -649,10 +632,11 @@ async def test_approve_with_malformed_json_is_a_400(client):
     assert (await client.get(f"/approvals/{approval_id}")).json()["status"] == "pending"
 
 
-async def test_unreadable_sealed_arguments_fail_closed(client):
-    created = await client.post("/runs", json={"agent_id": "agent_customer_ops", "input": "Refund Acme's duplicate charge."})
-    assert created.status_code == 201, created.text
-    approval_id = created.json()["approval_id"]
+async def test_unreadable_sealed_arguments_fail_closed(client, monkeypatch):
+    from tests.gateway_calls import REFUND_POLICY, call, connected_agent, held
+
+    agent = await connected_agent(client, monkeypatch, policy=REFUND_POLICY)
+    approval_id, run_id = held(await call(client, agent, {"amount": 840}))
     generator, session = await _db()
     try:
         from app.models import Action, Approval
@@ -666,8 +650,14 @@ async def test_unreadable_sealed_arguments_fail_closed(client):
         await _close(generator)
     approved = await client.post(f"/approvals/{approval_id}/approve")
     assert approved.status_code == 403, approved.text
-    run = (await client.get(f"/runs/{created.json()['id']}")).json()
-    assert run["status"] == "failed"
+    generator, session = await _db()
+    try:
+        from app.models import Run
+
+        assert (await session.get(Run, run_id)).status == "failed"
+    finally:
+        await _close(generator)
+    assert agent.sent == []
 
 
 def test_keyed_digest_accepts_legacy_rows():

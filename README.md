@@ -97,7 +97,7 @@ app/
   cli/             one-off maintenance commands (`python -m app.cli.pq1`)
   features/
     identity/      auth (sessions, MFA, passkeys), oauth (the MCP authorization server)
-    organization/  org: members, invites, groups, mapping, subscription
+    organization/  org: members, invites, groups, mapping
     platform/      admin
     agent/         agents
     mcp/           servers, oauth (upstream sign-in), gateway (the gateway)
@@ -106,7 +106,6 @@ app/
     tooling/       tools, tool sets
     credentials/   vault
     webhooks/      endpoints, deliveries, background worker
-    billing/       payments (placeholder)
 ```
 
 `app/main.py` mounts each function router. HTTP handlers live in `controllers/`; `routes/` is the mount point. Postgres schema changes are Alembic migrations in `alembic/versions/`.
@@ -265,9 +264,9 @@ Reviewers use `GET /approvals` and `POST /approvals/{id}/approve`, `/reject` or 
 
 ## Billing
 
-Eisoptric is free. Every plan (`free`, `pro`, `team`, `enterprise`) has every feature, and every plan in the catalog is priced at 0.00. The plan names and checks remain so that stored plans keep parsing. `GET /org/subscription` reports an organization's plan. `GET /payments` is reserved for Stripe and returns an empty list; it does not charge or store anything.
+Eisoptric is free, with no plans or billing routes. Every account has every feature; personal accounts and team organizations differ only in whether they have members, invites and groups.
 
-Agent wallets and x402 payments have been removed (migration `039_drop_wallets_x402`).
+Agent wallets and x402 payments were removed earlier (migration `039_drop_wallets_x402`), and the unused plan, subscription and placeholder payment routes were retired in `068_retire_plans_and_saturn_agent_fields`.
 
 Donations go through [GitHub Sponsors](https://github.com/sponsors/eisoptric).
 
@@ -412,7 +411,7 @@ These are known as of [0.1.0](CHANGELOG.md) and not yet fixed.
 ### Policies, approvals and audit
 
 - Editing an active policy moves it back to draft, and its limits do not apply until it is activated again.
-- `/approvals` and `/activity` are not narrowed by the agent mapping that `/runs` uses. Applying it as is would hide requests from approvers outside the mapping.
+- `/approvals` and `/activity` are not narrowed by per-member agent mappings. Applying that filter as is would hide requests from approvers outside the mapping.
 - A platform admin can create a member with the admin role, and that admin's first payload key is approved automatically.
 - `audit_logs` and `webhook_deliveries` have no retention limit. Each upstream result can be up to 4 MB and is stored twice.
 - Each audit record encapsulates its data key separately to every approved member's key. At 50 members that costs about 1 ms of CPU, but the envelope is about 78 KiB. Making it smaller would change who can open records later, so it stays as it is.

@@ -25,7 +25,7 @@ async def test_org_detail_shows_the_business_of_the_organization(client):
     assert body["webhooks"]["endpoints"] == 1
     assert body["webhooks"]["enabled"] == 1
     assert [item["host"] for item in body["allowed_hosts"]] == [CUSTOM]
-    assert body["subscription"]["organization_id"] == "org_default"
+    assert "subscription" not in body
 
     # Users come with their sign-in security; the test admin has an authenticator app.
     rick = next(item for item in body["users"] if item["email"] == "rick@example.com")

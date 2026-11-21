@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, JSON, String, Text
+from sqlalchemy import DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.ids import new_revision, utcnow
@@ -15,12 +15,7 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     photo: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
-    plan: Mapped[str] = mapped_column(String(32), default="free", nullable=False)
     kind: Mapped[str] = mapped_column(String(32), default="personal", nullable=False)
-    deployment_mode: Mapped[str] = mapped_column(String(32), default="cloud", nullable=False)
-    runtime_region: Mapped[str] = mapped_column(String(64), default="asia-east1", nullable=False)
-    runtime_version: Mapped[str] = mapped_column(String(32), default="0.1.0", nullable=False)
-    billing: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     # Changes in the same transaction as every write that can change a policy decision. The
     # policy engine's cache is used only while it still matches. See policy_revision.py.
     policy_revision: Mapped[Optional[str]] = mapped_column(String(32), default=new_revision, nullable=True)

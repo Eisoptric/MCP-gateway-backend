@@ -79,7 +79,7 @@ from app.features.identity.auth.services.mailer import (
 from app.features.organization.org.services.mapping_service import mapping_service
 from app.features.mcp.servers.services.mcp_gateway import mcp_gateway
 from app.features.organization.org.services.member_service import member_service
-from app.features.organization.org.services.plans import profile_identity
+from app.features.organization.org.services.accounts import profile_identity
 from app.features.tooling.tool_sets.services.tool_set_service import tool_set_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -191,7 +191,6 @@ async def serialize_user(session, user: User) -> UserRead:
             user.id,
             user.organization_id,
             user.organization.kind,
-            user.organization.plan,
         ),
         locale=normalize_locale(user.locale),
         mfa_setup_required=(user.is_platform_admin or is_org_admin(permissions))

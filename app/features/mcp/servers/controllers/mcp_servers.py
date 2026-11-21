@@ -10,7 +10,7 @@ from app.core.public_origin import public_origin
 from app.features.identity.auth.controllers.session_cookie import cookie_secure
 from app.core.enums import AuditEvent
 from app.features.execution.activity.services.change_log import record_change
-from app.features.identity.auth.controllers.deps import AgentsRead, CurrentUser, GatewayCloud, SessionDep, TeamRead, TeamWrite
+from app.features.identity.auth.controllers.deps import AgentsRead, CurrentUser, SessionDep, TeamRead, TeamWrite
 from app.features.identity.auth.controllers.session_cookie import COOKIE_NAME
 from app.features.mcp.servers.services import mcp_hosts
 from app.features.mcp.servers.services.mcp_endpoint import ALLOWED_MCP_HOSTS
@@ -114,7 +114,6 @@ async def add_allowed_host(
     session: SessionDep,
     user: CurrentUser,
     _access: TeamWrite,
-    _cloud: GatewayCloud,
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ):
     from app.features.identity.auth.services.auth_service import auth_service
@@ -147,7 +146,6 @@ async def start_mcp_oauth(
     session: SessionDep,
     user: CurrentUser,
     _access: TeamWrite,
-    _cloud: GatewayCloud,
 ):
     try:
         result = await mcp_oauth.begin(
@@ -204,7 +202,7 @@ async def read_mcp_oauth_attempt(nonce: str, response: Response, session: Sessio
 
 
 @router.post("", response_model=McpServerRead, status_code=201)
-async def connect_mcp_server(body: McpConnect, session: SessionDep, user: CurrentUser, _access: TeamWrite, _cloud: GatewayCloud):
+async def connect_mcp_server(body: McpConnect, session: SessionDep, user: CurrentUser, _access: TeamWrite):
     server = await mcp_connect_service.connect(
         session,
         user,
@@ -216,13 +214,13 @@ async def connect_mcp_server(body: McpConnect, session: SessionDep, user: Curren
 
 
 @router.post("/{server_id}/refresh", response_model=McpServerRead)
-async def refresh_mcp_server(server_id: str, session: SessionDep, user: CurrentUser, _access: TeamWrite, _cloud: GatewayCloud):
+async def refresh_mcp_server(server_id: str, session: SessionDep, user: CurrentUser, _access: TeamWrite):
     server = await mcp_connect_service.refresh(session, user, server_id)
     return serialize_mcp_server(server)
 
 
 @router.delete("/{server_id}", status_code=204)
-async def delete_mcp_server(server_id: str, session: SessionDep, user: CurrentUser, _access: TeamWrite, _cloud: GatewayCloud):
+async def delete_mcp_server(server_id: str, session: SessionDep, user: CurrentUser, _access: TeamWrite):
     from app.core.enums import AuditEvent
     from app.features.execution.activity.services.change_log import record_change
     from app.models import McpServer

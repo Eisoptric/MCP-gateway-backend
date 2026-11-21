@@ -271,7 +271,7 @@ async def test_expired_and_uncertain_upstream_do_not_retry(client, monkeypatch):
     assert calls["n"] == 1
 
 
-async def test_groups_work_on_every_plan_and_stay_in_their_org(client):
+async def test_groups_stay_in_their_org(client):
     owned = await client.post("/org/groups", json={"name": "Finance Approvers"})
     assert owned.status_code == 201, owned.text
     other = await client.post(
@@ -281,29 +281,20 @@ async def test_groups_work_on_every_plan_and_stay_in_their_org(client):
             "admin_email": "other-admin@example.com",
             "admin_name": "Other",
             "admin_password": "password1",
-            "plan": "team",
             "kind": "organization",
         },
     )
     assert other.status_code == 201, other.text
-    assert other.json()["plan"] == "team"
     assert other.json()["kind"] == "organization"
     signed = await client.post("/auth/login", json={"email": "other-admin@example.com", "password": "password1"})
     foreign_headers = _auth(signed.json()["token"])
     from tests.totp_access import finish_totp
 
     await finish_totp(client, foreign_headers)
-    foreign_org = await client.get("/org", headers=foreign_headers)
-    assert foreign_org.json()["organization"]["entitlements"]["groups"] is True
     hidden = await client.get(f"/org/groups/{owned.json()['id']}", headers=foreign_headers)
     assert hidden.status_code == 404
     assert (await client.get("/approvals", headers=foreign_headers)).json() == []
 
-    moved = await client.patch("/admin/orgs/org_default", json={"plan": "pro"})
-    assert moved.status_code == 200, moved.text
-    org = await client.get("/org")
-    assert org.json()["organization"]["entitlements"]["groups"] is True
-    assert org.json()["organization"]["entitlements"]["policies"] is True
     created = await client.post("/org/groups", json={"name": "Also"})
     assert created.status_code == 201, created.text
     single = await client.post("/org/approval-policies", json={"name": "Solo", "required_count": 1})
