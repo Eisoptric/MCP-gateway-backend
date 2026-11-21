@@ -582,15 +582,23 @@ class AdminStatsRead(BaseModel):
     organizations: int
     users: int
     agents: int
+    # MCP servers that organizations have connected, and how many of them the gateway cannot reach.
     connections: int
+    mcp_errors: int = 0
     personal: int = 0
     teams: int = 0
+    plans: dict[str, int] = Field(default_factory=dict)
+    tool_calls_24h: int = 0
+    approvals_pending: int = 0
+    webhook_failures_24h: int = 0
 
 
 class AdminServiceStatus(BaseModel):
     id: str
     name: str
     status: str
+    # Percent of the worker's checks that passed over the last 30 days; None before any sample.
+    uptime_30d: float | None = None
 
 
 class AdminEventRead(ORMModel):
@@ -617,17 +625,15 @@ class AdminOrgSummary(ORMModel):
     status: str = "active"
     plan: str = "free"
     kind: str = "personal"
-    deployment_mode: str = "cloud"
-    runtime_region: str = "asia-east1"
-    runtime_version: str = "0.1.0"
     created_at: datetime
     user_count: int
     agent_count: int
     tool_count: int = 0
     connection_count: int = 0
-    runtime_status: str = "disconnected"
     mcp_status: str = "none"
-    last_heartbeat_at: datetime | None = None
+    mcp_error_count: int = 0
+    tool_calls_30d: int = 0
+    last_activity_at: datetime | None = None
 
 
 class AdminOrgOnboardRequest(BaseModel):
@@ -646,12 +652,9 @@ class AdminOrgUpdateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=NAME_LEN)
     status: str | None = Field(default=None, max_length=SHORT_LEN)
     plan: str | None = Field(default=None, max_length=SHORT_LEN)
-    deployment_mode: str | None = Field(default=None, max_length=SHORT_LEN)
-    runtime_region: str | None = Field(default=None, max_length=64)
 
 
 class AdminHealthCheck(BaseModel):
-    runtime: str = "disconnected"
     mcp: str = "none"
     agents: str = "none"
     policies: str = "none"
@@ -673,40 +676,51 @@ class AdminMemberCreateRequest(BaseModel):
     mcp_server_ids: IdList = Field(default_factory=list)
 
 
-class AdminOrgDetail(AdminOrgSummary):
-    members: list[MemberRead] = Field(default_factory=list)
-    agents: list[AgentRead] = Field(default_factory=list)
-    health: AdminHealthCheck = Field(default_factory=AdminHealthCheck)
-    mcp_servers: list[McpServerRead] = Field(default_factory=list)
-
-
-class AdminConnectionChannel(BaseModel):
+class AdminPolicySummary(BaseModel):
     id: str
     name: str
     status: str
-    last_heartbeat_at: datetime | None = None
-    version: str | None = None
-    detail: str | None = None
+    version: int
+    rule_count: int
+    updated_at: datetime
 
 
-class AdminOrgConnections(BaseModel):
-    organization_id: str
-    organization_name: str
-    channels: list[AdminConnectionChannel]
+class AdminApprovalCounts(BaseModel):
+    pending: int = 0
+    approved_30d: int = 0
+    rejected_30d: int = 0
+    expired_30d: int = 0
 
 
-class AdminRuntimeRead(BaseModel):
-    id: str
-    organization_id: str
-    organization_name: str
-    status: str
-    region: str
-    version: str
-    deployment_mode: str
-    active_runs: int
-    agent_count: int
-    last_heartbeat_at: datetime | None = None
+class AdminWebhookSummary(BaseModel):
+    endpoints: int = 0
+    enabled: int = 0
+    delivered_30d: int = 0
+    failed_30d: int = 0
+    last_failure_at: datetime | None = None
     last_error: str | None = None
+
+
+class AdminAllowedHost(BaseModel):
+    host: str
+    organization_id: str
+    organization_name: str = ""
+    created_at: datetime
+
+
+class AdminOrgDetail(AdminOrgSummary):
+    members: list[MemberRead] = Field(default_factory=list)
+    # The same people as members, with their sign-in security and last sign-in.
+    users: list["AdminUserRead"] = Field(default_factory=list)
+    agents: list[AgentRead] = Field(default_factory=list)
+    health: AdminHealthCheck = Field(default_factory=AdminHealthCheck)
+    mcp_servers: list[McpServerRead] = Field(default_factory=list)
+    policies: list[AdminPolicySummary] = Field(default_factory=list)
+    tool_set_count: int = 0
+    approvals: AdminApprovalCounts = Field(default_factory=AdminApprovalCounts)
+    webhooks: AdminWebhookSummary = Field(default_factory=AdminWebhookSummary)
+    allowed_hosts: list[AdminAllowedHost] = Field(default_factory=list)
+    subscription: SubscriptionRead | None = None
 
 
 class AdminMcpSummary(BaseModel):
@@ -715,22 +729,53 @@ class AdminMcpSummary(BaseModel):
     healthy: int
     errors: int
     items: list[dict[str, Any]] = Field(default_factory=list)
+    # Hosts every organization may use, and the ones organizations approved for themselves.
+    builtin_hosts: list[str] = Field(default_factory=list)
+    allowed_hosts: list[AdminAllowedHost] = Field(default_factory=list)
 
 
-class AdminUsageRow(BaseModel):
+class AdminActivityRow(BaseModel):
     organization_id: str
     organization_name: str
     plan: str
     kind: str = "personal"
-    runs: int
-    tool_calls: int
+    tool_calls: int = 0
+    allowed: int = 0
+    approval_required: int = 0
+    denied: int = 0
+    approvals_approved: int = 0
+    approvals_rejected: int = 0
+    approvals_expired: int = 0
+    webhooks_delivered: int = 0
+    webhooks_failed: int = 0
 
 
-class AdminSettingsRead(BaseModel):
-    platform: dict[str, Any]
-    security: dict[str, Any]
-    infrastructure: dict[str, Any]
-    admins: list[AdminUserRead] = Field(default_factory=list)
+class AdminActivityDay(BaseModel):
+    day: str
+    tool_calls: int = 0
+    denied: int = 0
+    approval_required: int = 0
+
+
+class AdminActivityRead(BaseModel):
+    days: int
+    rows: list[AdminActivityRow] = Field(default_factory=list)
+    daily: list[AdminActivityDay] = Field(default_factory=list)
+
+
+class AdminPlatformRead(BaseModel):
+    """What this deployment runs with. Secret values are never included, only whether each is set."""
+
+    revision: str
+    service: str
+    cors_origins: list[str]
+    webauthn_rp_id: str
+    session_ttl_days: int
+    policy_model: dict[str, Any]
+    email: dict[str, Any]
+    sign_in: dict[str, Any]
+    secrets: dict[str, bool]
+    admins: list["AdminUserRead"] = Field(default_factory=list)
 
 
 class AdminUserRead(ORMModel):
@@ -745,6 +790,10 @@ class AdminUserRead(ORMModel):
     title: str | None = None
     role: str | None = None
     created_at: datetime
+    passkeys: int = 0
+    totp_enabled: bool = False
+    email_mfa: bool = False
+    last_sign_in_at: datetime | None = None
 
 
 class ReauthRequest(BaseModel):
@@ -915,3 +964,7 @@ class CredentialWrite(BaseModel):
     broker_id: str = Field(default="", max_length=ID_LEN)
     allowed_paths: list[Annotated[str, Field(max_length=1_024)]] = Field(default_factory=list, max_length=200)
     secret: str | None = Field(default=None, max_length=SECRET_LEN)
+
+
+AdminOrgDetail.model_rebuild()
+AdminPlatformRead.model_rebuild()
