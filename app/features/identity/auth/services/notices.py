@@ -4,7 +4,6 @@ import logging
 import re
 from datetime import datetime, timezone
 
-from fastapi import HTTPException, status
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,38 +37,6 @@ async def notify_task_outcome(session: AsyncSession, run: Run, outcome: str) -> 
         await _send_task(session, run.organization_id, run.id, outcome, rows, run)
     except Exception:
         logger.exception("Could not send a task notice for %s", run.id)
-
-
-async def finish_task_notice(
-    session: AsyncSession,
-    organization_id: str,
-    execution_id: str,
-    requested: str,
-    summary: str = "",
-) -> None:
-    # Only a real run of this organization; ids that appear only in audit payloads are agent-chosen.
-    run = await session.get(Run, execution_id)
-    if run is None or run.organization_id != organization_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
-    if run.status == RunStatus.WAITING_APPROVAL:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Task is waiting for approval")
-    if run.status in {RunStatus.QUEUED, RunStatus.RUNNING} and requested == "completed":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Task is still running")
-    rows = await _task_rows(session, organization_id, execution_id)
-    outcome = requested
-    if run.status in {RunStatus.FAILED, RunStatus.CANCELLED}:
-        outcome = "failed"
-    if _blocked(rows):
-        outcome = "failed"
-    await _send_task(
-        session,
-        organization_id,
-        execution_id,
-        outcome,
-        rows,
-        run,
-        summary=_summary_text(summary),
-    )
 
 
 async def _dispatch(session: AsyncSession, entry: AuditLog) -> None:

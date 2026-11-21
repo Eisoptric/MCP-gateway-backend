@@ -20,8 +20,6 @@ class Agent(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    model: Mapped[str] = mapped_column(String(128), default="claude-sonnet", nullable=False)
-    runtime_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     settings: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     tool_set_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("tool_sets.id", ondelete="SET NULL"), nullable=True, index=True

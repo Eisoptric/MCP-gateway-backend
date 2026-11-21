@@ -1,13 +1,5 @@
+from tests.gateway_calls import REFUND_POLICY, TOOL, call, connected_agent, held
 from tests.policy_helpers import activate_created
-
-
-def test_simulator_amount_extraction():
-    from app.features.execution.runs.services.simulator import extract_amount, extract_customer
-
-    assert extract_amount("Refund Acme's duplicate charge.") == 840.0
-    assert extract_amount("Refund 50 for Acme") == 50.0
-    assert extract_amount("Refund 5000 for Acme") == 5000.0
-    assert extract_customer("Refund Acme's duplicate charge.") == "Acme"
 
 
 async def test_health(client):
@@ -99,101 +91,59 @@ async def test_seeded_catalog(client):
     assert [rule["decision"] for rule in refund["rules"]] == ["allow", "approval", "deny"]
 
 
-async def test_full_execution_loop_requires_approval(client):
-    created = await client.post(
-        "/runs",
-        json={
-            "agent_id": "agent_customer_ops",
-            "input": "Refund Acme's duplicate charge.",
-        },
-    )
-    assert created.status_code == 201
-    run = created.json()
-    assert run["status"] == "waiting_approval"
-    assert run["approval_id"]
+async def test_a_call_above_the_limit_waits_for_approval_and_runs_once_approved(client, monkeypatch):
+    agent = await connected_agent(client, monkeypatch, policy=REFUND_POLICY)
+    approval_id, run_id = held(await call(client, agent, {"amount": 840, "customer": "Acme"}))
+    assert agent.sent == []
 
-    refund = next(action for action in run["actions"] if action["tool"] == "billing.refund")
-    assert refund["status"] == "waiting_approval"
-    assert refund["policy_decision"] == "approval_required"
-    assert next(action for action in run["actions"] if action["tool"] == "crm.get_customer")[
-        "status"
-    ] == "completed"
-
-    approved = await client.post(f"/approvals/{run['approval_id']}/approve")
-    assert approved.status_code == 200
-    body = approved.json()
-    assert body == {
-        "status": "completed",
-        "action": "billing.refund",
-        "result": "success",
-    }
-
-    finished = (await client.get(f"/runs/{run['id']}")).json()
-    assert finished["status"] == "completed"
-
-    activity = (await client.get("/activity", params={"run_id": run["id"]})).json()
-    assert activity == []
+    approved = await client.post(f"/approvals/{approval_id}/approve")
+    assert approved.status_code == 200, approved.text
+    assert (await client.get(f"/approvals/{approval_id}")).json()["status"] == "approved"
+    # Approval does not run the tool: the agent sends the call again under the same run.
+    assert agent.sent == []
+    again = await call(client, agent, {"amount": 840, "customer": "Acme"}, run_id=run_id)
+    assert again["result"]["content"][0]["text"] == "refunded"
+    assert agent.sent == [{"amount": 840, "customer": "Acme"}]
 
 
-async def test_small_refund_completes_without_approval(client):
-    created = await client.post(
-        "/runs",
-        json={"agent_id": "agent_customer_ops", "input": "Refund 50 for Acme"},
-    )
-    run = created.json()
-    assert created.status_code == 201
-    assert run["status"] == "completed"
-    assert run["approval_id"] is None
-    refund = next(action for action in run["actions"] if action["tool"] == "billing.refund")
-    assert refund["status"] == "completed"
-    assert refund["policy_decision"] == "allow"
+async def test_a_call_within_the_limit_runs_without_approval(client, monkeypatch):
+    agent = await connected_agent(client, monkeypatch, policy=REFUND_POLICY)
+    body = await call(client, agent, {"amount": 50, "customer": "Acme"})
+    assert body["result"]["content"][0]["text"] == "refunded"
+    assert agent.sent == [{"amount": 50, "customer": "Acme"}]
 
 
-async def test_large_refund_is_denied(client):
-    created = await client.post(
-        "/runs",
-        json={"agent_id": "agent_customer_ops", "input": "Refund 5000 for Acme"},
-    )
-    run = created.json()
-    assert run["status"] == "failed"
-    refund = next(action for action in run["actions"] if action["tool"] == "billing.refund")
-    assert refund["status"] == "denied"
-    assert refund["policy_decision"] == "deny"
-    activity = (await client.get("/activity", params={"run_id": run["id"]})).json()
-    assert activity == []
+async def test_a_call_over_the_hard_limit_is_denied(client, monkeypatch):
+    agent = await connected_agent(client, monkeypatch, policy=REFUND_POLICY)
+    body = await call(client, agent, {"amount": 5000, "customer": "Acme"})
+    assert body["error"]["data"]["code"] == "policy_denied"
+    assert agent.sent == []
 
 
-async def test_reject_cancels_run(client):
-    created = await client.post(
-        "/runs",
-        json={"agent_id": "agent_customer_ops", "input": "Refund Acme's duplicate charge."},
-    )
-    approval_id = created.json()["approval_id"]
+async def test_a_rejected_call_is_never_sent(client, monkeypatch):
+    agent = await connected_agent(client, monkeypatch, policy=REFUND_POLICY)
+    approval_id, run_id = held(await call(client, agent, {"amount": 840}))
     rejected = await client.post(f"/approvals/{approval_id}/reject")
-    assert rejected.status_code == 200
+    assert rejected.status_code == 200, rejected.text
     assert rejected.json()["status"] == "rejected"
-    run = (await client.get(f"/runs/{created.json()['id']}")).json()
-    assert run["status"] == "cancelled"
+    again = await call(client, agent, {"amount": 840}, run_id=run_id)
+    assert "error" in again
+    assert agent.sent == []
 
 
-async def test_approve_rechecks_policy(client):
-    created = await client.post(
-        "/runs",
-        json={"agent_id": "agent_customer_ops", "input": "Refund Acme's duplicate charge."},
-    )
-    approval_id = created.json()["approval_id"]
+async def test_approve_rechecks_policy(client, monkeypatch):
+    agent = await connected_agent(client, monkeypatch, policy=REFUND_POLICY)
+    approval_id, run_id = held(await call(client, agent, {"amount": 840}))
     tightened = await client.post(
         "/policies",
-        json={
-            "name": "Block refunds",
-            "rules": [
-                {"tool": "billing.refund", "condition": "amount > 0", "decision": "deny"},
-            ],
-        },
+        json={"name": "Block refunds", "rules": [{"tool": TOOL, "condition": "amount > 0", "decision": "deny"}]},
     )
     await activate_created(client, tightened)
-    response = await client.post(f"/approvals/{approval_id}/approve")
-    assert response.status_code == 403
+    # Whether the approval is refused at once or the resubmitted call is, the refund never goes out.
+    await client.post(f"/approvals/{approval_id}/approve")
+    again = await call(client, agent, {"amount": 840}, run_id=run_id)
+    assert "error" in again, again
+    assert agent.sent == []
 
 
 async def _session():

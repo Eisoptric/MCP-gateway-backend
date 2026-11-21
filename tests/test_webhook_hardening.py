@@ -31,7 +31,7 @@ async def _with_session(fn):
 
 
 async def _stage_org(session, org_id: str, deliveries: int) -> None:
-    session.add(Organization(id=org_id, name=org_id, plan="team", kind="organization"))
+    session.add(Organization(id=org_id, name=org_id, kind="organization"))
     await session.flush()
     session.add(
         WebhookEndpoint(

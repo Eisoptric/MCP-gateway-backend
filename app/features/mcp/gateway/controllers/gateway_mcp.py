@@ -10,7 +10,7 @@ from app.core.public_origin import public_origin
 from app.features.identity.auth.controllers.deps import SessionDep
 from app.models import Organization, User
 from app.features.identity.oauth.services.oauth_service import oauth_service
-from app.features.organization.org.services.plans import allows_gateway_cloud, profile_identity, suspended
+from app.features.organization.org.services.accounts import profile_identity, suspended
 from app.features.mcp.gateway.services.mcp_sessions import mcp_sessions
 from app.features.mcp.gateway.services.gateway_mcp import rpc_error, gateway_mcp
 
@@ -48,7 +48,7 @@ async def _caller(request: Request, session: SessionDep) -> tuple[User, str, str
     if not client_id:
         raise _unauthorized(origin)
     org = user.organization or await session.get(Organization, user.organization_id)
-    if org is None or not allows_gateway_cloud(org.plan):
+    if org is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "MCP Gateway is unavailable")
     if suspended(org):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Organization is suspended")
@@ -104,7 +104,7 @@ async def gateway_mcp_endpoint(request: Request, session: SessionDep) -> JSONRes
         message = {}
     if not isinstance(message, dict):
         message = {}
-    expected = profile_identity(user.id, org.id, org.kind, org.plan) if org is not None else ""
+    expected = profile_identity(user.id, org.id, org.kind) if org is not None else ""
     presented = (request.headers.get("x-eisoptric-profile") or "").strip()
     if presented and expected and presented != expected:
         return JSONResponse(rpc_error(message.get("id", 1), -32000, "Profile does not match"))

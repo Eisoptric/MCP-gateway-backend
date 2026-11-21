@@ -688,6 +688,8 @@ class PolicyService:
         async for kind, payload in iter_optimize_definition(document, inventory, request):
             if kind == "think":
                 yield {"type": "think", "text": payload}
+            elif kind == "status":
+                yield {"type": "status", **payload}
             elif kind == "result":
                 outcome = payload
         if outcome is None:

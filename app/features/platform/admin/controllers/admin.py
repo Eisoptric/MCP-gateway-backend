@@ -5,23 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Response, status
 
-from app.features.agent.agents.controllers.agents import serialize_agent as _serialize_tenant_agent
-
-
-# Tenant content the cross-tenant view never shows: the agent's prompt, its knowledge, and
-# where it sends model traffic. The audit view already hides prompt text the same way.
-_TENANT_SETTINGS = ("instructions", "knowledge", "base_url", "model_connection_id")
-
-
-def serialize_agent(agent):
-    read = _serialize_tenant_agent(agent)
-    settings = dict(read.settings or {})
-    if settings:
-        instructions = str(settings.get("instructions") or "")
-        for key in _TENANT_SETTINGS:
-            settings.pop(key, None)
-        settings["instructions_length"] = len(instructions)
-    return read.model_copy(update={"settings": settings})
+from app.features.agent.agents.controllers.agents import serialize_agent
 from app.features.identity.auth.controllers.deps import PlatformAdmin, SessionDep
 from app.features.mcp.servers.controllers.mcp_servers import serialize_mcp_server
 from app.features.organization.org.controllers.org import serialize_member
@@ -64,25 +48,9 @@ def serialize_org(snap: dict) -> AdminOrgSummary:
     return AdminOrgSummary(**snap)
 
 
-_PROMPT_TEXT_KEYS = ("previous", "prompt")
-
-
 def _platform_payload(event: str, payload):
-    """What a platform admin may see of a tenant's audit payload.
-
-    Agent system prompts are tenant content. The org's own audit log keeps the full text;
-    the cross-tenant admin view shows only that a prompt changed and how long it is.
-    """
-    shown = admin_audit_payload(payload)
-    if not isinstance(shown, dict) or str(event) != AuditEvent.PROMPT_UPDATED.value:
-        return shown
-    redacted = dict(shown)
-    for key in _PROMPT_TEXT_KEYS:
-        if key in redacted:
-            text = redacted.pop(key)
-            redacted[f"{key}_length"] = len(text) if isinstance(text, str) else 0
-    redacted["redacted"] = True
-    return redacted
+    """What a platform admin may see of a tenant's audit payload: never sealed content."""
+    return admin_audit_payload(payload)
 
 
 def serialize_event(item: AuditLog) -> AdminEventRead:
@@ -154,7 +122,6 @@ async def onboard_org(body: AdminOrgOnboardRequest, session: SessionDep, admin: 
         admin_name=body.admin_name,
         admin_password=body.admin_password,
         admin_title=body.admin_title,
-        plan=body.plan,
         kind=body.kind,
     )
     snap = await admin_service.org_snapshot(session, org)
@@ -176,8 +143,6 @@ async def get_org(organization_id: str, session: SessionDep, _admin: PlatformAdm
     servers = await admin_service.list_mcp_servers(session, org.id)
     users = await admin_service.org_users(session, org.id)
     security = await admin_service.user_security(session, [user.id for user in users])
-    from app.features.organization.org.services.subscription_service import serialize_subscription
-
     return AdminOrgDetail(
         **snap,
         members=[serialize_member(item) for item in members],
@@ -190,7 +155,6 @@ async def get_org(organization_id: str, session: SessionDep, _admin: PlatformAdm
         approvals=AdminApprovalCounts(**await admin_service.org_approvals(session, org.id)),
         webhooks=AdminWebhookSummary(**await admin_service.org_webhooks(session, org.id)),
         allowed_hosts=[AdminAllowedHost(**item) for item in await admin_service.allowed_hosts(session, org.id)],
-        subscription=serialize_subscription(org),
     )
 
 
@@ -207,7 +171,6 @@ async def update_org(
         organization_id,
         name=body.name,
         status=body.status,
-        plan=body.plan,
     )
     return serialize_org(await admin_service.org_snapshot(session, org))
 

@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.ids import new_id, utcnow
 from app.features.credentials.vault.services.pq_crypto import KeyUnavailable
 from app.features.credentials.vault.services.secret_vault import get_secret, put_secret
-from app.features.organization.org.services.plans import PRO_REQUIRED, allows_pro
 from app.models import Organization
 from app.features.webhooks.models.webhook import WebhookAttempt, WebhookDelivery, WebhookEndpoint
 from app.features.webhooks.services.destinations import (
@@ -150,7 +149,7 @@ async def send_webhook(url: str, body: bytes, headers: dict[str, str]) -> tuple[
 
 async def _webhooks_allowed(session: AsyncSession, organization_id: str) -> bool:
     org = await session.get(Organization, organization_id)
-    return org is not None and allows_pro(org.plan)
+    return org is not None
 
 
 async def _endpoint(session: AsyncSession, organization_id: str, endpoint_id: str) -> WebhookEndpoint:
@@ -612,7 +611,7 @@ async def _prepare(session: AsyncSession, row: WebhookDelivery, now: datetime) -
         return None
     if not await _webhooks_allowed(session, row.organization_id):
         row.status = "dead"
-        row.last_error = PRO_REQUIRED
+        row.last_error = "organization missing"
         row.updated_at = now
         return None
     if not endpoint.enabled and row.event_type != "webhook.test":

@@ -19,7 +19,6 @@ from app.schemas import (
     OrgWorkspaceRead,
     OrganizationRead,
     PhotoUpdate,
-    SubscriptionRead,
 )
 from app.features.organization.org.services.access import allows, normalize_permissions, permission_catalog
 from app.core.enums import AuditEvent
@@ -30,7 +29,6 @@ from app.features.mcp.servers.services.mcp_gateway import mcp_gateway
 from app.features.organization.org.services.member_service import member_service
 from app.features.identity.auth.services.photo import clean_photo
 from app.features.organization.org.services.organization_service import serialize_organization
-from app.features.organization.org.services.subscription_service import get_subscription, pay_invoice
 from app.shared.pagination import Page
 
 router = APIRouter(prefix="/org", tags=["org"])
@@ -251,24 +249,6 @@ async def invite_member(
     )
     # token is None outside local development: the invitee gets the link by email.
     return serialize_invite(invite, token, created=True)
-
-
-@router.get("/subscription", response_model=SubscriptionRead)
-async def read_subscription(session: SessionDep, user: CurrentUser, _access: TeamWrite):
-    org = await session.get(Organization, user.organization_id)
-    if org is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
-    return await get_subscription(session, org)
-
-
-@router.post("/subscription/invoices/{invoice_id}/pay", response_model=SubscriptionRead)
-async def pay_subscription_invoice(
-    invoice_id: str, session: SessionDep, user: CurrentUser, _access: TeamWrite
-):
-    org = await session.get(Organization, user.organization_id)
-    if org is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
-    return await pay_invoice(session, org, invoice_id)
 
 
 @router.delete("/invites/{invite_id}", status_code=204)

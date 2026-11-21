@@ -31,7 +31,7 @@ from app.features.identity.oauth.services.oauth_service import (
     oauth_service,
     redirect_allowed,
 )
-from app.features.organization.org.services.plans import profile_identity, suspended
+from app.features.organization.org.services.accounts import profile_identity, suspended
 from app.models import Agent, Policy, ToolSet, ToolSetItem
 
 router = APIRouter(tags=["oauth"])
@@ -483,7 +483,7 @@ async def authorize(request: Request, session: SessionDep):
               }});
             </script>""",
         )
-    identity = profile_identity(user.id, user.organization_id, user.organization.kind, user.organization.plan)
+    identity = profile_identity(user.id, user.organization_id, user.organization.kind)
     csrf = secrets.token_urlsafe(18)
     scope = await _consent_scope(session, user, client.id)
     locale = normalize_locale(user.locale)
@@ -733,7 +733,7 @@ async def oauth_consent(request: Request, session: SessionDep):
         denied.delete_cookie(COOKIE, path="/oauth")
         return denied
     scope = await _consent_scope(session, user, client.id)
-    identity = profile_identity(user.id, user.organization_id, user.organization.kind, user.organization.plan)
+    identity = profile_identity(user.id, user.organization_id, user.organization.kind)
     await audit_service.log(
         session,
         event="agent_authorized",

@@ -435,11 +435,17 @@ async def test_policy_model_endpoints_are_rate_limited(client, monkeypatch):
 async def test_policy_model_request_size_is_capped(client, monkeypatch):
     created = await client.post("/policies", json={"name": "Graph", "definition": {"nodes": [], "edges": []}})
     policy_id = created.json()["id"]
-    long = await client.post(
+    too_long = await client.post(
+        f"/policies/{policy_id}/optimize",
+        json={"definition": {"nodes": []}, "instructions": "x" * 100_001},
+    )
+    assert too_long.status_code == 422
+    monkeypatch.setattr(policy_service_module, "MAX_INSTRUCTIONS", 4000)
+    service_cap = await client.post(
         f"/policies/{policy_id}/optimize",
         json={"definition": {"nodes": []}, "instructions": "x" * 4001},
     )
-    assert long.status_code == 400
+    assert service_cap.status_code == 400
     monkeypatch.setattr(policy_service_module, "MAX_LLM_TOOLS", 1)
     two_tools = {
         "nodes": [
@@ -451,6 +457,59 @@ async def test_policy_model_request_size_is_capped(client, monkeypatch):
     wide = await client.post(f"/policies/{policy_id}/optimize", json={"definition": two_tools})
     assert wide.status_code == 400
     assert "at most 1 tools" in wide.json()["detail"]
+
+
+async def test_optimize_passes_full_long_instructions_and_batches_large_policies(monkeypatch):
+    import json
+
+    from app.features.policy.policies.services import policy_llm as llm_module
+    from app.features.policy.policies.services.policy_graph import compile_definition, definition_from_analyses
+
+    monkeypatch.setattr(llm_module, "_configured", lambda: True)
+    monkeypatch.setattr(llm_module, "OPTIMIZE_BATCH_SIZE", 2)
+
+    analyses = [
+        {
+            "tool": f"tool_{i}",
+            "status": "analyzed",
+            "operation": "read",
+            "resource": "item",
+            "risk": "low",
+            "sideEffects": "none",
+            "decision": "deny",
+            "conditions": [],
+            "rationale": "ok",
+        }
+        for i in range(5)
+    ]
+    definition = definition_from_analyses("set_1", analyses)
+    tools = [{"name": f"tool_{i}", "description": f"Tool {i}", "inputSchema": {}, "server": "demo"} for i in range(5)]
+    long_instructions = "Rule header\n" + ("a" * 25_000) + "\nRule footer: allow all read tools"
+
+    seen_batches: list[dict] = []
+
+    async def fake_chat(messages):
+        payload = json.loads(messages[1]["content"])
+        seen_batches.append(payload)
+        return {
+            "changes": [
+                {"tool": entry["tool"], "decision": "allow", "summary": "allow read"}
+                for entry in payload["policy"]
+            ]
+        }
+
+    monkeypatch.setattr(llm_module, "_chat", fake_chat)
+    optimized, diff = await llm_module.optimize_definition(definition, tools, long_instructions)
+
+    assert len(seen_batches) == 3
+    for batch in seen_batches:
+        assert batch["request"] == long_instructions
+        assert all(item["status"] == "analyzed" and item["operation"] == "read" for item in batch["policy"])
+    rules, errors = compile_definition(optimized)
+    assert errors == []
+    assert len(rules) == 5
+    assert all(rule["decision"] == "allow" for rule in rules)
+    assert len(diff) == 5
 
 
 # --- L-18 / L-20 -------------------------------------------------------------

@@ -109,10 +109,10 @@ async def test_webhook_tests_are_rate_limited(client, monkeypatch):
     assert sent["n"] == 30
 
 
-async def test_the_runs_list_is_paged(client):
-    assert (await client.get("/runs?limit=0")).status_code == 422
-    assert (await client.get("/runs?limit=501")).status_code == 422
-    page = await client.get("/runs?limit=1")
+async def test_list_routes_are_paged(client):
+    assert (await client.get("/agents?limit=0")).status_code == 422
+    assert (await client.get("/agents?limit=501")).status_code == 422
+    page = await client.get("/agents?limit=1")
     assert page.status_code == 200, page.text
     assert isinstance(page.json(), list) and len(page.json()) <= 1
 

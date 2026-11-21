@@ -97,7 +97,7 @@ app/
   cli/             一次性的維護指令（`python -m app.cli.pq1`）
   features/
     identity/      auth（工作階段、MFA、passkey）、oauth（MCP 的授權伺服器）
-    organization/  org：成員、邀請、群組、對應、訂閱
+    organization/  org：成員、邀請、群組、對應
     platform/      admin
     agent/         agents
     mcp/           servers、oauth（上游登入）、gateway（Gateway）
@@ -106,7 +106,6 @@ app/
     tooling/       tools、tool sets
     credentials/   vault
     webhooks/      端點、傳送紀錄、背景 worker
-    billing/       payments（保留位置）
 ```
 
 `app/main.py` 掛載每個職能的 router。HTTP handler 放在 `controllers/`；`routes/` 是掛載點。Postgres 的 schema 變更是 `alembic/versions/` 中的 Alembic 遷移。
@@ -265,9 +264,9 @@ curl -s -X POST localhost:8000/mcp-servers \
 
 ## 計費
 
-Eisoptric 是免費的。每個方案（`free`、`pro`、`team`、`enterprise`）都有全部功能，方案目錄中的每個方案價格都是 0.00。保留方案名稱與檢查，是為了讓已儲存的方案仍能正確解析。`GET /org/subscription` 回報組織的方案。`GET /payments` 是保留給 Stripe 的路由，回傳空清單；它不會收費，也不會儲存任何資料。
+Eisoptric 是免費的，沒有方案或計費路由。每個帳號都有全部功能；個人帳號與團隊組織只差在是否有成員、邀請與群組。
 
-Agent 錢包與 x402 付款已經移除（遷移 `039_drop_wallets_x402`）。
+Agent 錢包與 x402 付款先前已移除（遷移 `039_drop_wallets_x402`），未使用的方案、訂閱與保留付款路由也已在 `068_retire_plans_and_saturn` 移除。
 
 捐款透過 [GitHub Sponsors](https://github.com/sponsors/eisoptric)。
 
@@ -412,7 +411,7 @@ Cloud Run + Cloud SQL + Memorystore，金庫使用 Cloud KMS。[部署 workflow]
 ### 政策、核准與稽核
 
 - 編輯啟用中的政策會讓它回到草稿，重新啟用之前，其中的限制都不會生效。
-- `/approvals` 與 `/activity` 沒有套用 `/runs` 使用的 agent 對應過濾。直接套用的話，不在對應裡的核准者會看不到該核准的請求。
+- `/approvals` 與 `/activity` 沒有套用成員層級的 agent 對應過濾。直接套用的話，不在對應裡的核准者會看不到該核准的請求。
 - 平台管理員可以建立 admin 角色的成員，而那位 admin 的第一把內容金鑰會自動核准。
 - `audit_logs` 與 `webhook_deliveries` 沒有保留期限。每筆上游結果最大 4 MB，而且存兩份。
 - 每筆稽核紀錄會把資料金鑰分別封裝給每位已核准成員的金鑰。50 位成員時約多花 1 毫秒 CPU，但信封約 78 KiB。要縮小就得改變之後誰能打開紀錄，所以維持現狀。

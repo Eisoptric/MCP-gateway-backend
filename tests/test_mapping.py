@@ -48,25 +48,30 @@ async def test_catalog_is_scoped_to_org(client):
     assert any(user["email"] == "rick@example.com" for user in users)
 
 
-async def test_unmapped_agent_cannot_run(client):
-    created = await client.post(
-        "/runs",
-        json={"agent_id": "agent_unmapped", "input": "Refund 50 for Acme"},
-    )
-    assert created.status_code == 404
+async def test_retired_run_and_agent_creation_routes_are_gone(client):
+    assert (await client.post("/runs", json={"agent_id": "agent_unmapped", "input": "Refund 50 for Acme"})).status_code == 404
+    assert (await client.get("/runs")).status_code == 404
+    assert (
+        await client.post(
+            "/agents",
+            json={"name": "Broke Ops", "description": "No funds", "model": "claude-sonnet"},
+        )
+    ).status_code == 405
+    assert (await client.patch("/agents/agent_customer_ops", json={"model": "claude-sonnet"})).status_code == 422
 
 
-async def test_creating_agent_assigns_it_to_employee(client):
-    created = await client.post(
-        "/agents",
-        json={"name": "Broke Ops", "description": "No funds", "model": "claude-sonnet"},
+async def test_connecting_mcp_client_registers_agent_in_catalog(client):
+    from tests.oauth_access import oauth_access
+
+    access = await oauth_access(client, "Broke Ops")
+    opened = await client.post(
+        "/mcp",
+        headers={"Authorization": f"Bearer {access}"},
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "Broke Ops"}}},
     )
-    assert created.status_code == 201
-    agent_id = created.json()["id"]
+    assert opened.status_code == 200, opened.text
 
     agents = (await client.get("/agents")).json()
-    assert any(agent["id"] == agent_id for agent in agents)
-
-    me = (await client.get("/auth/me")).json()
-    assert any(agent["id"] == agent_id for agent in me["agents"])
-    assert agent_id in me["assigned_agent_ids"]
+    agent = next(item for item in agents if item["name"] == "Broke Ops")
+    assert agent["origin"] == "gateway_mcp"
+    assert agent["enrolled"] is True

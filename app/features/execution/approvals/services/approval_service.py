@@ -158,30 +158,12 @@ class ApprovalService:
             payload={"approval_id": approval.id, **({"source": "gateway_mcp"} if mapped else {})},
         )
 
-        if mapped or not settings.in_process_runtime:
-            await arm_resubmit(session, approval, run.organization_id)
+        # The agent sends the approved call again under its run; that resubmit is what executes it.
+        await arm_resubmit(session, approval, run.organization_id)
         await notify_transition(session, run.organization_id, "approval.granted", approval, action.tool)
-
-        if mapped or not settings.in_process_runtime:
-            run.status = RunStatus.RUNNING
-            run.updated_at = utcnow()
-            await session.flush()
-            return await run_service.load_run(session, run.id), action, "completed", None
-
-        await run_service.execute_action(
-            session,
-            action,
-            agent=agent,
-            actor_type=ActorType.USER,
-            actor_id=actor_id,
-            approved=True,
-            skip_policy=True,
-        )
-        if action.status == ActionStatus.FAILED:
-            run.status = RunStatus.FAILED
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Tool execution failed")
-
-        await run_service.continue_run(session, run)
+        run.status = RunStatus.RUNNING
+        run.updated_at = utcnow()
+        await session.flush()
         return await run_service.load_run(session, run.id), action, "completed", None
 
     async def reject(
@@ -502,9 +484,6 @@ class ApprovalService:
         if approval.requester_user_id and not await self._still_active(session, approval.requester_user_id):
             await self._invalidate(session, approval, action, "requester is no longer active")
         tool = await run_service.get_tool(session, agent.organization_id, action.tool)
-        gateway = bool(getattr(tool, "mcp_server_id", None) or getattr(tool, "mcp_endpoint", None))
-        if not gateway and settings.in_process_runtime:
-            return _Prepared(tool=tool, gateway=False, arguments=None)
         from app.features.mcp.gateway.services.gateway_mcp import gateway_mcp
 
         # The same check tools/call makes: active, and still in this agent's tool set.
@@ -527,24 +506,7 @@ class ApprovalService:
         actor_id: str,
         prepared: _Prepared,
     ) -> None:
-        if prepared.gateway:
-            await self._send_claimed(session, approval, action, run, agent, prepared)
-            return
-        await run_service.execute_action(
-            session,
-            action,
-            agent=agent,
-            actor_type=ActorType.USER,
-            actor_id=actor_id,
-            approved=True,
-            skip_policy=True,
-        )
-        if action.status == ActionStatus.FAILED:
-            run.status = RunStatus.FAILED
-            await approval_lifecycle.settle(session, approval, ExecutionState.FAILED)
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Tool execution failed")
-        await approval_lifecycle.settle(session, approval, ExecutionState.EXECUTED, commit=False)
-        await run_service.continue_run(session, run)
+        await self._send_claimed(session, approval, action, run, agent, prepared)
 
     async def _send_claimed(
         self,

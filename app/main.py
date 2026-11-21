@@ -16,14 +16,12 @@ from app.core.origin_auth import OriginAuthMiddleware
 from app.core import status as service_status
 from app.features.identity.auth.controllers.deps import SessionDep
 from app.features.agent.agents.routes import router as agents_router
-from app.features.billing.payments.routes import router as payments_router
 from app.features.credentials.vault.services.pq_crypto import KeyUnavailable
 from app.features.credentials.vault.routes import router as credentials_router
 from app.features.execution.activity.routes import router as activity_router
 from app.features.execution.activity.controllers.payload_keys import router as payload_keys_router
 from app.features.execution.approvals.controllers.approval_policies import router as approval_policies_router
 from app.features.execution.approvals.routes import router as approvals_router
-from app.features.execution.runs.routes import router as runs_router
 from app.features.identity.auth.routes import router as auth_router
 from app.features.identity.oauth.routes import router as oauth_router
 from app.features.mcp.gateway.routes import router as gateway_mcp_router
@@ -174,11 +172,9 @@ app.include_router(mcp_servers_router)
 app.include_router(oauth_router)
 app.include_router(tool_sets_router)
 app.include_router(gateway_mcp_router)
-app.include_router(runs_router)
 app.include_router(tools_router)
 app.include_router(policies_router)
 app.include_router(approvals_router)
-app.include_router(payments_router)
 app.include_router(activity_router)
 app.include_router(payload_keys_router)
 

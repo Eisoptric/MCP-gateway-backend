@@ -412,7 +412,6 @@ class GatewayMcp:
             organization_id=user.organization_id,
             name=name,
             description="",
-            model="",
             settings={"created_client_id": client_id},
         )
         try:

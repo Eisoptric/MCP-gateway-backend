@@ -122,7 +122,7 @@ async def test_what_the_platform_does_inside_a_tenant_is_in_that_tenants_change_
             "admin_email": "admin@acme.test",
             "admin_name": "Acme Admin",
             "admin_password": "password1",
-            "plan": "enterprise",
+            "kind": "organization",
         },
     )
     assert created.status_code == 201, created.text

@@ -118,7 +118,6 @@ async def seed_test_catalog(session: AsyncSession) -> None:
                 organization_id=settings.default_org_id,
                 name="Customer Operations",
                 description="Handles customer support and billing operations",
-                model="claude-sonnet",
             )
         )
 
@@ -129,7 +128,6 @@ async def seed_test_catalog(session: AsyncSession) -> None:
                 organization_id=settings.default_org_id,
                 name="Unmapped Agent",
                 description="Present in the enterprise but not assigned to the seed employee",
-                model="claude-sonnet",
             )
         )
 

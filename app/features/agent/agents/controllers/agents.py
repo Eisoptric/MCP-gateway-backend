@@ -12,9 +12,8 @@ from app.features.identity.auth.controllers.deps import (
     SessionDep,
     TeamWrite,
 )
-from app.schemas import AgentCreate, AgentRead, AgentUpdate
+from app.schemas import AgentRead, AgentUpdate
 from app.models import OAuthAccess, OAuthClient, User
-from app.features.agent.agents.services.agent_config import public_settings
 from app.features.agent.agents.services.agent_service import agent_service
 from app.features.organization.org.services.mapping_service import mapping_service
 from app.features.organization.org.services.removal_service import removal_service
@@ -93,13 +92,10 @@ def serialize_agent(agent, pushed: bool | None = None, registration: dict[str, s
         id=agent.id,
         name=agent.name,
         description=agent.description,
-        model=agent.model,
         organization_id=agent.organization_id,
         connected=_recent_mcp_client(agent),
         enrolled=str((agent.settings or {}).get("origin") or "") == "gateway_mcp",
-        runtime_id=agent.runtime_id,
         last_seen_at=agent.last_seen_at,
-        settings=public_settings(agent),
         tool_set_id=agent.tool_set_id,
         profile_id=str((agent.settings or {}).get("profile_id") or "") or None,
         origin=str((agent.settings or {}).get("origin") or "") or None,
@@ -122,19 +118,6 @@ async def list_agents(session: SessionDep, user: CurrentUser, _access: AgentsRea
 @router.get("/{agent_id}", response_model=AgentRead)
 async def get_agent(agent_id: str, session: SessionDep, user: CurrentUser, _access: AgentsRead):
     agent = await agent_service.get_agent(session, user, agent_id)
-    registrations = await _registrations(session, [agent])
-    return serialize_agent(agent, registration=registrations.get(agent.id))
-
-
-@router.post("", response_model=AgentRead, status_code=201)
-async def create_agent(body: AgentCreate, session: SessionDep, user: CurrentUser, _access: AgentsWrite):
-    agent = await agent_service.create_agent(
-        session,
-        user,
-        name=body.name,
-        description=body.description,
-        model=body.model,
-    )
     registrations = await _registrations(session, [agent])
     return serialize_agent(agent, registration=registrations.get(agent.id))
 

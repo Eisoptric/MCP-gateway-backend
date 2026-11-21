@@ -62,10 +62,10 @@ async def test_invite_accept_and_enforce_permissions(client):
         "name": "Other",
     })).status_code == 403
     assert (await client.get("/agents", headers=headers)).status_code == 200
-    assert (await client.post(
-        "/agents",
+    assert (await client.patch(
+        "/agents/agent_customer_ops",
         headers=headers,
-        json={"name": "Shadow", "description": "", "model": "claude-sonnet"},
+        json={"description": "Shadow"},
     )).status_code == 403
     assert (await client.get("/policies", headers=headers)).status_code == 200
     assert (await client.post(
@@ -75,7 +75,7 @@ async def test_invite_accept_and_enforce_permissions(client):
     )).status_code == 403
 
 
-async def test_operator_can_run_but_not_manage_team(client):
+async def test_operator_can_edit_assigned_agent_but_not_manage_team(client):
     invited = await client.post(
         "/org/invites",
         json={
@@ -92,19 +92,15 @@ async def test_operator_can_run_but_not_manage_team(client):
         json={"token": invited.json()["token"], "password": "password1"},
     )
     headers = {"Authorization": f"Bearer {accepted.json()['token']}"}
-    created = await client.post(
-        "/agents",
+    updated = await client.patch(
+        "/agents/agent_customer_ops",
         headers=headers,
-        json={"name": "Ops Agent", "description": "", "model": "claude-sonnet"},
+        json={"description": "Managed by ops"},
     )
-    assert created.status_code == 201, created.text
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["description"] == "Managed by ops"
+    assert (await client.delete("/agents/agent_customer_ops", headers=headers)).status_code == 403
     assert (await client.get("/org/members", headers=headers)).status_code == 403
-    run = await client.post(
-        "/runs",
-        headers=headers,
-        json={"agent_id": "agent_customer_ops", "input": "Refund 50 for Acme"},
-    )
-    assert run.status_code == 201
 
 
 async def test_admin_can_change_member_access(client):

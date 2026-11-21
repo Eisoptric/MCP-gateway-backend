@@ -10,8 +10,7 @@ from app.core.ids import new_id, utcnow
 from app.features.execution.activity.services.audit_service import audit_service
 from app.features.execution.approvals.models.approval import ApprovalPolicy, ApprovalRequirement
 from app.features.organization.org.models.group import Group, GroupMember
-from app.features.organization.org.services.plans import GROUPS_REQUIRED, allows_groups
-from app.models import Employee, Organization
+from app.models import Employee
 
 
 class GroupService:
@@ -42,7 +41,6 @@ class GroupService:
         name: str,
         description: str = "",
     ) -> Group:
-        await self._require_plan(session, organization_id)
         cleaned = name.strip()
         if not cleaned:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Group name is required")
@@ -264,11 +262,6 @@ class GroupService:
             result="deleted",
             payload={"group_id": group_id, "name": group.name},
         )
-
-    async def _require_plan(self, session: AsyncSession, organization_id: str) -> None:
-        org = await session.get(Organization, organization_id)
-        if org is None or not allows_groups(org.plan):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, GROUPS_REQUIRED)
 
 
 group_service = GroupService()

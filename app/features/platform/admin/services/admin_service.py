@@ -13,7 +13,6 @@ from sqlalchemy.orm import selectinload
 from app.core.config import get_settings
 from app.core.ids import new_id
 from app.models import (
-    Action,
     Agent,
     Approval,
     AuditLog,
@@ -46,7 +45,7 @@ from app.features.organization.org.services.member_service import (
     unusable_password_hash,
 )
 from app.shared import runtime
-from app.features.organization.org.services.plans import canonical_plan, kind_for_plan
+from app.features.organization.org.services.accounts import account_kind
 
 settings = get_settings()
 ORG_STATUSES = {"active", "trial", "suspended"}
@@ -59,6 +58,11 @@ def _aware(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
+
+
+# Every gateway tools/call is evaluated exactly once, whatever the decision, and only a call held
+# for approval gets an Action row. So tool calls are counted from these audit events.
+_DECIDED = (AuditLog.event == "policy_evaluated", AuditLog.source == "gateway_mcp")
 
 
 def _ago(days: float) -> datetime:
@@ -87,12 +91,8 @@ class AdminService:
         teams = await session.scalar(
             select(func.count()).select_from(Organization).where(Organization.kind == "organization")
         )
-        plans: dict[str, int] = {}
-        for plan, count in (await session.execute(select(Organization.plan, func.count()).group_by(Organization.plan))).all():
-            key = canonical_plan(plan)
-            plans[key] = plans.get(key, 0) + int(count)
         tool_calls = await session.scalar(
-            select(func.count()).select_from(Action).where(Action.created_at >= _ago(1))
+            select(func.count()).select_from(AuditLog).where(*_DECIDED, AuditLog.created_at >= _ago(1))
         )
         pending = await session.scalar(
             select(func.count()).select_from(Approval).where(Approval.status == "pending")
@@ -114,7 +114,6 @@ class AdminService:
             "mcp_errors": mcp_errors,
             "personal": int(personal or 0),
             "teams": int(teams or 0),
-            "plans": plans,
             "tool_calls_24h": int(tool_calls or 0),
             "approvals_pending": int(pending or 0),
             "webhook_failures_24h": int(webhook_failures or 0),
@@ -179,9 +178,8 @@ class AdminService:
         mcp_status = snap["status"] if int(snap["total"] or 0) else "none"
         calls = await session.scalar(
             select(func.count())
-            .select_from(Action)
-            .join(Run, Action.run_id == Run.id)
-            .where(Run.organization_id == org.id, Action.created_at >= _ago(30))
+            .select_from(AuditLog)
+            .where(*_DECIDED, AuditLog.organization_id == org.id, AuditLog.created_at >= _ago(30))
         )
         last_run = await session.scalar(select(func.max(Run.created_at)).where(Run.organization_id == org.id))
         last_seen = await session.scalar(select(func.max(Agent.last_seen_at)).where(Agent.organization_id == org.id))
@@ -190,8 +188,7 @@ class AdminService:
             "id": org.id,
             "name": org.name,
             "status": org.status,
-            "plan": canonical_plan(org.plan),
-            "kind": org.kind if org.kind in {"personal", "organization"} else kind_for_plan(org.plan),
+            "kind": account_kind(org.kind),
             "created_at": org.created_at,
             "user_count": user_count,
             "agent_count": agent_count,
@@ -276,18 +273,15 @@ class AdminService:
         admin_name: str,
         admin_password: str | None,
         admin_title: str,
-        plan: str = "free",
         kind: str | None = None,
     ) -> tuple[Organization, Employee]:
         cleaned_name = name.strip()
         if not cleaned_name:
             raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Organization name is required")
-        cleaned_plan = canonical_plan(plan, strict=True)
         employee = await self.create_member(
             session,
             organization=None,
             org_name=cleaned_name,
-            plan=cleaned_plan,
             email=admin_email,
             name=admin_name,
             password=admin_password,
@@ -308,7 +302,7 @@ class AdminService:
             actor_type=ActorType.USER,
             actor_id=actor.id,
             organization_id=org.id,
-            payload={"name": org.name, "plan": org.plan},
+            payload={"name": org.name, "kind": org.kind},
         )
         return org, employee
 
@@ -320,7 +314,6 @@ class AdminService:
         *,
         name: str | None,
         status: str | None = None,
-        plan: str | None = None,
     ) -> Organization:
         org = await self.get_org(session, organization_id)
         changed: dict[str, str] = {}
@@ -336,12 +329,6 @@ class AdminService:
                 raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Status must be active, trial, or suspended")
             org.status = cleaned
             changed["status"] = cleaned
-        if plan is not None:
-            cleaned = canonical_plan(plan, strict=True)
-            org.plan = cleaned
-            org.kind = kind_for_plan(cleaned)
-            changed["plan"] = cleaned
-            changed["kind"] = org.kind
         await session.flush()
         if changed:
             await audit_service.log(
@@ -601,10 +588,9 @@ class AdminService:
         since = _ago(days)
         decisions = (
             await session.execute(
-                select(Run.organization_id, Action.policy_decision, func.count())
-                .join(Run, Action.run_id == Run.id)
-                .where(Action.created_at >= since)
-                .group_by(Run.organization_id, Action.policy_decision)
+                select(AuditLog.organization_id, AuditLog.result, func.count())
+                .where(*_DECIDED, AuditLog.created_at >= since)
+                .group_by(AuditLog.organization_id, AuditLog.result)
             )
         ).all()
         approvals = (
@@ -644,17 +630,16 @@ class AdminService:
                 {
                     "organization_id": org.id,
                     "organization_name": org.name,
-                    "plan": canonical_plan(org.plan),
-                    "kind": org.kind if org.kind in {"personal", "organization"} else kind_for_plan(org.plan),
+                    "kind": account_kind(org.kind),
                     **per.get(org.id, {}),
                 }
             )
-        day = func.date(Action.created_at)
+        day = func.date(AuditLog.created_at)
         daily_rows = (
             await session.execute(
-                select(day, Action.policy_decision, func.count())
-                .where(Action.created_at >= since)
-                .group_by(day, Action.policy_decision)
+                select(day, AuditLog.result, func.count())
+                .where(*_DECIDED, AuditLog.created_at >= since)
+                .group_by(day, AuditLog.result)
             )
         ).all()
         daily: dict[str, dict[str, int]] = {}
@@ -717,7 +702,6 @@ class AdminService:
         *,
         organization: Organization | None,
         org_name: str | None = None,
-        plan: str = "free",
         email: str,
         name: str,
         password: str | None,
@@ -758,18 +742,13 @@ class AdminService:
 
         resolved_role, resolved_perms = resolve_permissions(role, permissions)
 
-        cleaned_plan = canonical_plan(plan, strict=True)
         if organization is not None and organization.kind == "personal":
             raise HTTPException(http_status.HTTP_403_FORBIDDEN, "Personal accounts cannot add members")
         resolved_kind = ""
         if organization is None:
-            resolved_kind = (kind or "").strip().lower() or kind_for_plan(cleaned_plan)
+            resolved_kind = (kind or "").strip().lower() or "personal"
             if resolved_kind not in {"personal", "organization"}:
                 raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Account type must be personal or team")
-            if resolved_kind == "personal" and cleaned_plan in {"team", "enterprise"}:
-                raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "A personal account uses Free or Pro")
-            if resolved_kind == "organization" and cleaned_plan not in {"team", "enterprise"}:
-                raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "A team account uses Team or Enterprise")
         else:
             await member_service._validate_ids(session, organization.id, agent_ids, mcp_server_ids)
 
@@ -790,7 +769,6 @@ class AdminService:
                 id=new_id("org"),
                 name=(org_name or "").strip() or cleaned_name,
                 status="active",
-                plan=cleaned_plan,
                 kind=resolved_kind,
             )
             session.add(organization)
@@ -864,12 +842,11 @@ class AdminService:
         """Public sign-up. With an organization name the account is a team the new user owns;
         otherwise it is personal."""
         org_name = (organization or "").strip()
-        kind, plan = ("organization", "team") if org_name else ("personal", "free")
+        kind = "organization" if org_name else "personal"
         employee = await self.create_member(
             session,
             organization=None,
             org_name=org_name or name.strip() or "Personal",
-            plan=plan,
             email=email,
             name=name,
             password=password,
@@ -895,7 +872,7 @@ class AdminService:
             actor_type=ActorType.USER,
             actor_id=account.id,
             organization_id=account.organization_id,
-            payload={"kind": kind, "plan": plan},
+            payload={"kind": kind},
         )
         return account
 

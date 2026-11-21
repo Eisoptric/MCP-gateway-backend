@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from app.core.enums import AuditEvent
 from app.features.execution.activity.services.change_log import record_change
-from app.features.identity.auth.controllers.deps import CurrentUser, PoliciesRead, PoliciesWrite, GatewayCloud, SessionDep
+from app.features.identity.auth.controllers.deps import CurrentUser, PoliciesRead, PoliciesWrite, SessionDep
 from app.models import ToolSet
 from app.schemas import ToolSetItemRead, ToolSetRead, ToolSetUpdate, ToolSetWrite
 from app.features.tooling.tool_sets.services.tool_set_service import tool_set_service
@@ -47,7 +47,7 @@ async def list_tool_sets(session: SessionDep, user: CurrentUser, _access: Polici
 
 
 @router.post("", response_model=ToolSetRead, status_code=201)
-async def create_tool_set(body: ToolSetWrite, session: SessionDep, user: CurrentUser, _access: PoliciesWrite, _cloud: GatewayCloud):
+async def create_tool_set(body: ToolSetWrite, session: SessionDep, user: CurrentUser, _access: PoliciesWrite):
     tool_set = await tool_set_service.create(
         session,
         user,
@@ -82,7 +82,6 @@ async def update_tool_set(
     session: SessionDep,
     user: CurrentUser,
     _access: PoliciesWrite,
-    _cloud: GatewayCloud,
 ):
     tool_set = await tool_set_service.update(
         session,
@@ -97,7 +96,7 @@ async def update_tool_set(
 
 
 @router.delete("/{tool_set_id}", status_code=204)
-async def delete_tool_set(tool_set_id: str, session: SessionDep, user: CurrentUser, _access: PoliciesWrite, _cloud: GatewayCloud):
+async def delete_tool_set(tool_set_id: str, session: SessionDep, user: CurrentUser, _access: PoliciesWrite):
     removed = await tool_set_service.delete(session, user, tool_set_id)
     await record_change(
         session, user, AuditEvent.TOOL_SET_DELETED, result=removed["name"], tool_set_id=tool_set_id, agent_ids=removed["agent_ids"]

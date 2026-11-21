@@ -5,7 +5,7 @@ from tests.totp_access import finish_totp
 
 
 @pytest.mark.asyncio
-async def test_free_is_personal_and_pro_can_use_gateway_mcp(client):
+async def test_an_onboarded_personal_account_uses_gateway_mcp(client):
     created = await client.post(
         "/admin/orgs",
         json={
@@ -13,11 +13,11 @@ async def test_free_is_personal_and_pro_can_use_gateway_mcp(client):
             "admin_email": "ada@personal.test",
             "admin_name": "Ada",
             "admin_password": "password1",
-            "plan": "free",
         },
     )
     assert created.status_code == 201, created.text
     assert created.json()["kind"] == "personal"
+    assert "plan" not in created.json()
 
     signed = await client.post("/auth/login", json={"email": "ada@personal.test", "password": "password1"})
     assert signed.status_code == 200, signed.text
@@ -42,12 +42,9 @@ async def test_free_is_personal_and_pro_can_use_gateway_mcp(client):
     assert cloud.status_code == 200
     org = await client.get("/org", headers=headers)
     assert org.status_code == 200
-    assert org.json()["organization"]["entitlements"]["gateway"] is True
-    assert org.json()["organization"]["entitlements"]["policies"] is True
-    assert org.json()["organization"]["entitlements"]["webhooks"] is True
-    assert org.json()["organization"]["entitlements"]["tool_set_limit"] is None
-    assert org.json()["organization"]["entitlements"]["audit"] == "full"
-    assert org.json()["organization"]["entitlements"]["audit_days"] is None
+    assert org.json()["organization"]["kind"] == "personal"
+    assert "plan" not in org.json()["organization"]
+    assert "entitlements" not in org.json()["organization"]
 
     invited = await client.post(
         "/org/invites",
@@ -55,10 +52,6 @@ async def test_free_is_personal_and_pro_can_use_gateway_mcp(client):
         json={"email": "bea@personal.test", "name": "Bea"},
     )
     assert invited.status_code == 403
-
-    upgraded = await client.patch(f"/admin/orgs/{created.json()['id']}", json={"plan": "pro"})
-    assert upgraded.status_code == 200
-    assert upgraded.json()["kind"] == "personal"
 
     still_blocked = await client.post(
         "/mcp",
@@ -80,22 +73,6 @@ async def test_free_is_personal_and_pro_can_use_gateway_mcp(client):
     )
     assert matched.status_code == 200
     assert matched.json()["result"]["tools"] == []
-    created_agent = await client.post("/agents", headers=headers, json={"name": "Ada agent"})
-    assert created_agent.status_code == 201, created_agent.text
-    agent_id = created_agent.json()["id"]
-    bound = await client.post(
-        "/mcp",
-        headers={
-            **oauth_headers,
-            "X-Eisoptric-Profile": signed.json()["user"]["id"],
-            "X-Eisoptric-Agent-Id": agent_id,
-        },
-        json={"jsonrpc": "2.0", "id": 9, "method": "initialize", "params": {}},
-    )
-    assert bound.status_code == 200
-    listed = await client.get(f"/agents/{agent_id}", headers=headers)
-    assert not listed.json().get("profile_id")
-    assert not listed.json().get("origin")
     opened = await client.post(
         "/mcp",
         headers={**oauth_headers, "X-Eisoptric-Profile": signed.json()["user"]["id"]},
@@ -141,7 +118,6 @@ async def test_public_register_creates_a_personal_org(client, monkeypatch):
     body = created.json()
     assert body["token"]
     assert body["user"]["organization"]["kind"] == "personal"
-    assert body["user"]["organization"]["plan"] == "free"
     assert body["user"]["organization"]["name"] == "Mina"
     assert body["user"]["profile_id"] == body["user"]["id"]
 
@@ -164,7 +140,6 @@ async def test_public_register_creates_a_personal_org(client, monkeypatch):
     listed = (await client.get("/admin/orgs")).json()
     org = next(item for item in listed if item["name"] == "Mina")
     assert org["kind"] == "personal"
-    assert org["plan"] == "free"
     detail = await client.get(f"/admin/orgs/{org['id']}")
     assert detail.json()["health"]["issues"] == []
 
@@ -175,25 +150,23 @@ async def test_public_register_creates_a_personal_org(client, monkeypatch):
             "admin_email": "lead@team.test",
             "admin_name": "Lead",
             "admin_password": "password1",
-            "plan": "enterprise",
             "kind": "organization",
         },
     )
     assert team.status_code == 201, team.text
     assert team.json()["kind"] == "organization"
 
-    mismatch = await client.post(
+    unknown = await client.post(
         "/admin/orgs",
         json={
             "name": "Nope",
             "admin_email": "nope@team.test",
             "admin_name": "Nope",
             "admin_password": "password1",
-            "plan": "enterprise",
-            "kind": "personal",
+            "kind": "enterprise",
         },
     )
-    assert mismatch.status_code == 400
+    assert unknown.status_code == 400
 
 
 @pytest.mark.asyncio
@@ -214,7 +187,6 @@ async def test_public_register_with_an_organization_creates_a_team(client, monke
     body = created.json()
     org = body["user"]["organization"]
     assert org["kind"] == "organization"
-    assert org["plan"] == "team"
     assert org["name"] == "Ola Labs"
     assert body["user"]["profile_id"] == f"{org['id']}:{body['user']['id']}"
 

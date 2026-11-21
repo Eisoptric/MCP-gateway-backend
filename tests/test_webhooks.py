@@ -430,7 +430,6 @@ async def test_free_plan_manages_webhooks(client):
             "admin_email": "free-hooks@example.com",
             "admin_name": "Free Hooks",
             "admin_password": "password1",
-            "plan": "free",
         },
     )
     assert created.status_code == 201, created.text

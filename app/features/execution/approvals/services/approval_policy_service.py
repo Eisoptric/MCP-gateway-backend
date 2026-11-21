@@ -10,8 +10,6 @@ from app.core.ids import new_id, utcnow
 from app.features.execution.activity.services.audit_service import audit_service
 from app.features.execution.approvals.models.approval import ApprovalPolicy, ApprovalRequirement
 from app.features.organization.org.models.group import Group
-from app.features.organization.org.services.plans import GROUPS_REQUIRED, allows_groups
-from app.models import Organization
 
 
 class ApprovalPolicyService:
@@ -59,8 +57,6 @@ class ApprovalPolicyService:
                 status.HTTP_400_BAD_REQUEST,
                 "Choose one group or a list of groups",
             )
-        if requirements:
-            await self._require_capability(session, organization_id, count=2, group_id=None, grouped=True)
         grouped = await self._clean_requirements(session, organization_id, requirements)
         if grouped:
             count = sum(item[1] for item in grouped)
@@ -74,13 +70,6 @@ class ApprovalPolicyService:
             expires_minutes = check_minutes(expires_minutes)
         if resubmit_minutes is not None:
             resubmit_minutes = check_minutes(resubmit_minutes)
-        await self._require_capability(
-            session,
-            organization_id,
-            count=count,
-            group_id=None if grouped else group_id,
-            grouped=bool(grouped),
-        )
         if group_id and not grouped:
             await self._group(session, organization_id, group_id)
         policy = ApprovalPolicy(
@@ -186,13 +175,6 @@ class ApprovalPolicyService:
             next_group = group_id
         next_expires = check_minutes(expires_minutes) if expires_minutes is not None else policy.expires_minutes
         next_resubmit = check_minutes(resubmit_minutes) if resubmit_minutes is not None else policy.resubmit_minutes
-        await self._require_capability(
-            session,
-            organization_id,
-            count=next_count,
-            group_id=next_group,
-            grouped=bool(grouped) if grouped is not None else bool(policy.requirements),
-        )
 
         policy.name = next_name
         policy.status = next_status
@@ -266,21 +248,6 @@ class ApprovalPolicyService:
         if group is None or group.organization_id != organization_id or group.status != "active":
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
         return group
-
-    async def _require_capability(
-        self,
-        session: AsyncSession,
-        organization_id: str,
-        *,
-        count: int,
-        group_id: str | None,
-        grouped: bool = False,
-    ) -> None:
-        if count <= 1 and not group_id and not grouped:
-            return
-        org = await session.get(Organization, organization_id)
-        if org is None or not allows_groups(org.plan):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, GROUPS_REQUIRED)
 
 
 approval_policy_service = ApprovalPolicyService()

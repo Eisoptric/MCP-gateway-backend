@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy import func, or_, select, tuple_
 
-from app.core.ids import utcnow
 from app.features.identity.auth.controllers.deps import AgentsRead, CurrentUser, SessionDep, TeamRead
-from app.features.organization.org.services.plans import audit_retention_days
 from app.features.execution.activity.services.activity_cursor import decode_cursor, encode_cursor
 from app.features.execution.activity.services.audit_service import audit_service
 from app.features.execution.activity.services.zero_access import public_audit_payload
 from app.core.enums import ActorType, AuditEvent
-from app.models import AuditLog, Organization
+from app.models import AuditLog
 from app.schemas import ActivityEventRead
 
 router = APIRouter(prefix="/activity", tags=["activity"])
@@ -90,17 +87,12 @@ async def _rows(
     cursor: str | None,
 ) -> tuple[list[AuditLog], bool]:
     """Matching rows newest first, filtered in SQL. Returns one page and whether more exist."""
-    org = await session.get(Organization, user.organization_id)
-    plan = org.plan if org is not None else None
-    days = audit_retention_days(plan)
     stmt = select(AuditLog).where(
         AuditLog.organization_id == user.organization_id,
         AuditLog.source == GATEWAY_MCP_SOURCE,
     )
     if run_id:
         stmt = stmt.where(AuditLog.run_id == run_id)
-    if days is not None:
-        stmt = stmt.where(AuditLog.created_at >= utcnow() - timedelta(days=days))
     if tool and tool.strip():
         stmt = stmt.where(AuditLog.tool.contains(tool.strip(), autoescape=True))
     if agent and agent.strip():
@@ -186,14 +178,10 @@ async def list_changes(
     offset: int = OFFSET_PARAM,
 ):
     """Who changed a policy, a tool set, a member's access, or removed an agent or server."""
-    org = await session.get(Organization, user.organization_id)
-    days = audit_retention_days(org.plan if org is not None else None)
     stmt = select(AuditLog).where(
         AuditLog.organization_id == user.organization_id,
         AuditLog.event.in_(CHANGE_EVENTS),
     )
-    if days is not None:
-        stmt = stmt.where(AuditLog.created_at >= utcnow() - timedelta(days=days))
     rows, more = await _fetch(session, stmt, cursor, offset, limit)
     _page_headers(response, rows, more, offset=offset, cursor=cursor)
     return [_read(item) for item in rows]

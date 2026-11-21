@@ -126,7 +126,7 @@ async def test_invites_do_not_reveal_accounts_in_other_orgs(client, monkeypatch)
             "admin_email": "cfo@victim.test",
             "admin_name": "CFO",
             "admin_password": "password1",
-            "plan": "team",
+            "kind": "organization",
         },
     )
     assert onboarded.status_code == 201, onboarded.text
@@ -157,7 +157,7 @@ async def test_accepting_an_invite_for_an_existing_account_fails(client):
     onboarded = await client.post(
         "/admin/orgs",
         json={"name": "Owner Co", "admin_email": "owner@elsewhere.test", "admin_name": "Owner",
-              "admin_password": "password1", "plan": "team"},
+              "admin_password": "password1"},
     )
     assert onboarded.status_code == 201, onboarded.text
     # Dev mode returns the token, so the inviter could try to take over the address. It fails.
@@ -183,7 +183,7 @@ async def test_production_onboarding_never_uses_the_admin_chosen_password(client
             "admin_email": "owner@prod.test",
             "admin_name": "Owner",
             "admin_password": "known-by-platform-admin",
-            "plan": "team",
+            "kind": "organization",
         },
     )
     assert created.status_code == 201, created.text
@@ -216,7 +216,7 @@ async def test_production_onboarding_without_email_creates_nothing(client, monke
     _production(monkeypatch, email=False)
     refused = await client.post(
         "/admin/orgs",
-        json={"name": "No Mail Co", "admin_email": "owner@nomail.test", "admin_name": "Owner", "plan": "team"},
+        json={"name": "No Mail Co", "admin_email": "owner@nomail.test", "admin_name": "Owner"},
     )
     assert refused.status_code == 503
     assert len((await client.get("/admin/orgs")).json()) == before
@@ -227,7 +227,7 @@ async def test_production_onboarding_without_email_creates_nothing(client, monke
 async def test_dev_admin_passwords_keep_the_minimum_length(client):
     short = await client.post(
         "/admin/orgs",
-        json={"name": "Short", "admin_email": "s@short.test", "admin_name": "S", "admin_password": "short", "plan": "team"},
+        json={"name": "Short", "admin_email": "s@short.test", "admin_name": "S", "admin_password": "short"},
     )
     assert short.status_code == 400
 
@@ -235,48 +235,7 @@ async def test_dev_admin_passwords_keep_the_minimum_length(client):
 # M-27
 
 
-async def test_subscription_and_pay_require_team_write(client):
-    viewer = await _member(client, "billing-viewer@example.com")
-    assert (await client.get("/org/subscription", headers=viewer)).status_code == 403
-    assert (await client.post("/org/subscription/invoices/inv_x/pay", headers=viewer)).status_code == 403
-
-
-async def test_pay_refuses_amounts_without_a_payment_processor(client):
-    async def stage(session):
-        org = await session.get(Organization, "org_default")
-        org.billing = {
-            "payment": {"brand": "visa", "last4": "4242", "exp": "12/30"},
-            "invoices": [
-                {"id": "inv_due", "number": "INV-1", "period": "2026-10", "issued_at": "2026-10-01T00:00:00+00:00",
-                 "amount": "49.00", "status": "open", "lines": []},
-                {"id": "inv_zero", "number": "INV-2", "period": "2026-09", "issued_at": "2026-09-01T00:00:00+00:00",
-                 "amount": "0.00", "status": "open", "lines": []},
-            ],
-        }
-
-    await _with_session(stage)
-    due = await client.post("/org/subscription/invoices/inv_due/pay")
-    assert due.status_code == 501
-    assert due.json()["detail"] == "Payment processor is not configured"
-    invoices = {item["id"]: item for item in (await client.get("/org/subscription")).json()["invoices"]}
-    assert invoices["inv_due"]["status"] == "open"
-    zero = await client.post("/org/subscription/invoices/inv_zero/pay")
-    assert zero.status_code == 200, zero.text
-    assert {item["id"]: item["status"] for item in zero.json()["invoices"]}["inv_zero"] == "paid"
-
-
 # L-18
-
-
-async def test_agent_ids_are_generated_by_the_server(client):
-    probe = await client.post("/agents", json={"id": "agent_customer_ops", "name": "Probe"})
-    assert probe.status_code == 201, probe.text
-    agent_id = probe.json()["id"]
-    assert agent_id != "agent_customer_ops"
-    assert agent_id.startswith("agent_") and len(agent_id) == len("agent_") + 32
-    named = await client.post("/agents", json={"name": "Customer Ops"})
-    assert named.json()["id"] != "agent_customer_ops"
-    assert not named.json()["id"].startswith("agent_customer")
 
 
 # L-19
@@ -284,7 +243,7 @@ async def test_agent_ids_are_generated_by_the_server(client):
 
 async def test_tool_name_lookup_stays_in_the_callers_org(client):
     async def stage(session):
-        session.add(Organization(id="org_tools_other", name="Other", plan="team", kind="organization"))
+        session.add(Organization(id="org_tools_other", name="Other", kind="organization"))
         await session.flush()
         session.add(Tool(id="tool_other_refund", organization_id="org_tools_other", name="billing.refund",
                          description="", type="mcp", status="active"))
@@ -303,12 +262,12 @@ async def test_tool_name_lookup_stays_in_the_callers_org(client):
 
 
 async def test_request_size_limits(client):
-    assert (await client.post("/agents", json={"name": "x" * 256})).status_code == 422
-    agent_id = (await client.post("/agents", json={"name": "Sized"})).json()["id"]
-    huge = {"instructions": "x" * (70 * 1024)}
-    assert (await client.patch(f"/agents/{agent_id}", json={"settings": huge})).status_code == 422
-    assert (await client.patch(f"/agents/{agent_id}", json={"model": "m" * 129})).status_code == 422
-    assert (await client.patch(f"/agents/{agent_id}", json={"settings": {"instructions": "ok"}})).status_code == 200
+    agent_id = "agent_customer_ops"
+    assert (await client.patch(f"/agents/{agent_id}", json={"name": "x" * 256})).status_code == 422
+    assert (await client.patch(f"/agents/{agent_id}", json={"description": "x" * (70 * 1024)})).status_code == 422
+    assert (await client.patch(f"/agents/{agent_id}", json={"description": "ok"})).status_code == 200
+    # Saturn's prompt and model settings are gone; the API refuses them instead of ignoring them.
+    assert (await client.patch(f"/agents/{agent_id}", json={"settings": {"instructions": "x"}})).status_code == 422
     long_env = await client.post("/policies", json={"name": "P", "environment": "e" * 65})
     assert long_env.status_code == 422
     small_value = await client.post(
@@ -401,19 +360,6 @@ async def test_demotion_takes_the_lock_before_counting_admins(client, monkeypatc
 # I-03
 
 
-async def test_platform_audit_hides_agent_prompt_text(client):
-    agent_id = (await client.post("/agents", json={"name": "Prompted"})).json()["id"]
-    secret_prompt = "Internal playbook: never refund ACME more than 500"
-    updated = await client.patch(f"/agents/{agent_id}", json={"settings": {"instructions": secret_prompt}})
-    assert updated.status_code == 200, updated.text
-    audit = (await client.get("/admin/audit")).json()
-    event = next(item for item in audit if item["event"] == "prompt_updated")
-    assert secret_prompt not in str(event["payload"])
-    assert event["payload"]["redacted"] is True
-    assert event["payload"]["prompt_length"] == len(secret_prompt)
-    assert event["payload"]["agent_id"] == agent_id
-
-
 async def test_invitation_rows_never_store_the_raw_token(client):
     created = await client.post("/org/invites", json={"email": "hash@example.com", "name": "H", "role": "viewer"})
     token = created.json()["token"]
@@ -435,19 +381,3 @@ def test_invite_link_carries_the_invitee_address():
     assert "email=ops@example.com" in html
 
 
-async def test_platform_agent_views_hide_the_prompt(client):
-    agent_id = (await client.post("/agents", json={"name": "Prompted Two"})).json()["id"]
-    secret_prompt = "Internal playbook: approve ACME refunds up to 900"
-    updated = await client.patch(f"/agents/{agent_id}", json={"settings": {"instructions": secret_prompt}})
-    assert updated.status_code == 200, updated.text
-    org_id = (await client.get("/org")).json()["organization"]["id"]
-    for path in (f"/admin/orgs/{org_id}", f"/admin/orgs/{org_id}/agents"):
-        response = await client.get(path)
-        assert response.status_code == 200, (path, response.text)
-        assert secret_prompt not in response.text, path
-    agents = (await client.get(f"/admin/orgs/{org_id}/agents")).json()
-    mine = next(item for item in agents if item["id"] == agent_id)
-    assert mine["settings"]["instructions_length"] == len(secret_prompt)
-    assert "base_url" not in mine["settings"]
-    # The tenant's own view still has it.
-    assert secret_prompt in (await client.get(f"/agents/{agent_id}")).text
