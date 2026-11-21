@@ -14,8 +14,7 @@ GCP / GitHub step each option needs, in the order to apply them.
 
 ## One-time Google Cloud setup (new project)
 
-This is the setup for a new project. [Move to a new project](#move-to-a-new-project) does all of
-this section in one script.
+This is the setup for a new project.
 
 ### Workload Identity Federation
 
@@ -173,8 +172,10 @@ DATABASE_URL=postgresql+asyncpg://gateway:PASSWORD@/gateway?host=/cloudsql/PROJE
 CLOUD_SQL_INSTANCE_CONNECTION_NAME=PROJECT:REGION:INSTANCE   # GitHub variable
 ```
 
-For a new (TLS) Redis, `move-project.sh` stores `REDIS_URL` (a `rediss://` URL with the AUTH
-string) and `REDIS_CA` (the server CA), and sets the `REDIS_CA_SECRET` variable. An instance without TLS uses `REDIS_URL=redis://REDIS_HOST:6379/0`.
+For a new (TLS) Redis, store `REDIS_URL` as
+`rediss://:AUTH_STRING@HOST:6378/0?ssl_cert_reqs=required&ssl_ca_certs=/etc/secrets/redis-ca/ca.pem`
+(the AUTH string from `gcloud redis instances get-auth-string`) and `REDIS_CA` as the instance's
+`serverCaCerts`, and set the `REDIS_CA_SECRET` variable. An instance without TLS uses `REDIS_URL=redis://REDIS_HOST:6379/0`.
 
 ## GitHub variables and secrets
 
@@ -277,56 +278,6 @@ The container runs as uid 10001. uvicorn no longer gets `--proxy-headers --forwa
 so it trusts `X-Forwarded-*` only from 127.0.0.1. Behind Cloud Run, `request.client` is the Google
 front end and `request.url.scheme` is `http`. Code that needs the public origin or scheme must use
 `PUBLIC_WS_URL` (`app/core/public_origin.py`), not `request.base_url`.
-
-## Move to a new project
-
-`move-project.sh` builds the whole deployment in a new project and carries over what still holds
-from the old one, which it only reads. The data starts fresh: secrets and payloads sealed under the
-old `saturn-*` labels do not open under the new ones, so the database and Redis are new and empty.
-
-Run it on your own computer, signed in with `gcloud auth login` as someone who can create projects,
-link billing and grant IAM, and with `gh auth login` if it should set the repositories' variables
-and secrets (`GITHUB_SETUP=true`; otherwise it prints the `gh` commands):
-
-```bash
-NEW_PROJECT_ID=eisoptric-prod OLD_PROJECT_ID=<the Saturn project> \
-BILLING_ACCOUNT=<from gcloud billing accounts list> SEED_USER_EMAIL=<first admin> \
-GITHUB_SETUP=true bash infra/gcp/move-project.sh setup
-```
-
-`setup` creates the project (under `PROJECT_PARENT=organizations/ID` or `folders/ID` when set),
-links billing and enables the APIs, then:
-
-- runs `bootstrap.sh` for Artifact Registry, the VPC connector, Cloud SQL `gateway-pg` and Redis
-  `gateway-redis`, with a new database password that goes only into `DATABASE_URL` and the
-  `CLOUD_SQL_PASSWORD` GitHub secret, and stores `REDIS_URL` and `REDIS_CA`;
-- copies `SATURN_GITHUB_OAUTH_*` and `SATURN_GOOGLE_OAUTH_*` to their `GATEWAY_` names, and
-  `RESEND_*` and `POLICY_LLM_*` as they are, from the old project without printing them; a secret
-  the old project lacks is skipped;
-- makes new random `ORIGIN_AUTH_SECRET` and `CONSOLE_PROXY_SECRET` values, and stores the first
-  admin's address as `SEED_USER_EMAIL` (no password: the admin signs up by email);
-- creates the Cloud KMS MAC key `gateway/kem-root` (HMAC-SHA256, `KMS_PROTECTION_LEVEL`, default
-  `software`), the Workload Identity pool and provider, the deploy and runtime identities as in
-  [Identities](#identities) (with `runtime-service-account.sh` for `gateway-runtime`), and sets the
-  repositories' variables and secrets, with `MIGRATIONS_JOB=true` and `SEED_ON_DEPLOY=true`.
-
-The services do not exist yet, so the deployers hold `roles/run.admin` on the project for the
-first deploy. Then:
-
-1. Point the Cloudflare Transform Rule's `X-Eisoptric-Origin-Auth` at the new `ORIGIN_AUTH_SECRET`.
-2. Deploy Backend, then Frontend, then Ops, from `main`.
-3. Point `api.eisoptric.com` and `console.eisoptric.com` at the new services.
-4. Sign up at `SEED_USER_EMAIL` in the console (the emailed code makes it the platform admin), then run
-   `GCP_PROJECT_ID=eisoptric-prod NEW_PROJECT_ID=eisoptric-prod bash infra/gcp/move-project.sh after-first-deploy`.
-   It narrows each deployer to `roles/run.admin` on its own services, sets `SEED_ON_DEPLOY=false`
-   and disables the `SEED_USER_EMAIL` versions. Deploy Backend once more, and run `uptime-checks.sh`.
-
-The Google OAuth client still lives in the old project, so sign-in with Google works only while
-that project is up: create a new client in the new project, update `GATEWAY_GOOGLE_OAUTH_*`, and
-check that both OAuth apps (Google and GitHub) list `https://api.eisoptric.com` callbacks before
-shutting the old project down. `demosystem` and its `acme` registry are not moved.
-
-The script has only been run against stand-in `gcloud` and `gh` commands.
 
 ## Runbooks
 
