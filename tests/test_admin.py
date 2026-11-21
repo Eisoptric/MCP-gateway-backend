@@ -42,20 +42,19 @@ async def test_onboard_org_and_manage_members(client):
     assert org["name"] == "Acme"
     assert org["user_count"] == 1
     assert org["agent_count"] == 0
-    assert org["runtime_status"] == "disconnected"
     assert org["mcp_status"] == "none"
-    assert org["last_heartbeat_at"] is None
-    assert org["health"]["runtime"] == "disconnected"
+    assert org["mcp_error_count"] == 0
+    assert org["tool_calls_30d"] == 0
+    # The Saturn connector and per-customer runtime are gone from the admin view.
+    for gone in ("runtime_status", "deployment_mode", "runtime_region", "runtime_version", "last_heartbeat_at"):
+        assert gone not in org
+    assert "runtime" not in org["health"]
     assert org["health"]["mcp"] == "none"
     assert org["health"]["agents"] == "none"
     assert org["health"]["policies"] == "ok"
-    assert "Connector not connected" in org["health"]["issues"]
+    assert org["health"]["issues"] == []
     assert org["members"][0]["email"] == "admin@acme.test"
     assert org["members"][0]["role"] == "admin"
-
-    runtimes = (await client.get("/admin/runtimes")).json()
-    assert all(item["id"] != f"runtime_{org['id']}" for item in runtimes)
-    assert all(item["organization_id"] != org["id"] for item in runtimes)
 
     listed = (await client.get("/admin/orgs")).json()
     assert any(item["id"] == org["id"] for item in listed)
@@ -103,6 +102,9 @@ async def test_platform_overview_and_org_lifecycle(client):
     body = overview.json()
     assert "organizations" in body["stats"]
     assert {item["id"] for item in body["services"]} >= {"api", "gateway", "database"}
+    for key in ("plans", "tool_calls_24h", "approvals_pending", "webhook_failures_24h", "mcp_errors"):
+        assert key in body["stats"]
+    assert all("uptime_30d" in item for item in body["services"])
 
     created = await client.post(
         "/admin/orgs",
@@ -130,18 +132,23 @@ async def test_platform_overview_and_org_lifecycle(client):
     assert patched.json()["plan"] == "enterprise"
     assert patched.json()["kind"] == "organization"
 
-    assert (await client.get("/admin/connections")).status_code == 200
-    assert (await client.get("/admin/runtimes")).status_code == 200
-    assert (await client.get("/admin/mcp")).status_code == 200
-    assert (await client.get("/admin/usage")).status_code == 200
+    for removed in ("/admin/connections", "/admin/runtimes", "/admin/usage", "/admin/settings"):
+        assert (await client.get(removed)).status_code == 404
+    mcp = await client.get("/admin/mcp")
+    assert mcp.status_code == 200
+    assert "mcp.slack.com" in mcp.json()["builtin_hosts"]
     audit = await client.get("/admin/audit")
     assert audit.status_code == 200
     events = {item["event"] for item in audit.json()}
     assert "org_onboarded" in events
     assert "org_updated" in events
-    settings = await client.get("/admin/settings")
-    assert settings.status_code == 200
-    assert settings.json()["platform"]["name"] == "Eisoptric"
+    platform = await client.get("/admin/platform")
+    assert platform.status_code == 200, platform.text
+    body = platform.json()
+    assert body["admins"] and all(item["is_platform_admin"] for item in body["admins"])
+    # Whether each secret is set, never its value.
+    assert set(body["secrets"]) == {"kms_key", "origin_auth", "console_proxy", "redis_ca"}
+    assert all(isinstance(value, bool) for value in body["secrets"].values())
 
 
 def capture_reset_codes(monkeypatch) -> list[tuple[str, str]]:
@@ -327,7 +334,7 @@ async def test_audit_filters_and_pages(client):
     assert {"org_onboarded", "org_updated"} <= set(names.json())
 
 
-async def test_usage_counts_only_the_requested_range(client):
+async def test_activity_counts_only_the_requested_range(client):
     from datetime import datetime, timedelta, timezone
 
     from sqlalchemy import update
@@ -343,34 +350,33 @@ async def test_usage_counts_only_the_requested_range(client):
     assert created.status_code == 201, created.text
     run = created.json()
 
-    everyone = (await client.get("/admin/usage")).json()
-    organization_id = next(item["organization_id"] for item in everyone if item["runs"])
-
     def row(response):
         assert response.status_code == 200, response.text
-        return next(item for item in response.json() if item["organization_id"] == organization_id)
+        body = response.json()
+        return next(item for item in body["rows"] if item["tool_calls"]), body
 
-    all_time = row(await client.get("/admin/usage"))
-    assert all_time["runs"] == 1
-    assert all_time["tool_calls"] == len(run["actions"]) >= 1
-    assert row(await client.get("/admin/usage", params={"days": 7})) == all_time
+    recent, body = row(await client.get("/admin/activity"))
+    assert body["days"] == 30
+    assert recent["tool_calls"] == len(run["actions"]) >= 1
+    # Every call is counted under the decision its policy made.
+    assert recent["allowed"] + recent["approval_required"] + recent["denied"] == recent["tool_calls"]
+    assert sum(item["tool_calls"] for item in body["daily"]) == recent["tool_calls"]
 
     long_ago = datetime.now(timezone.utc) - timedelta(days=30)
     session_gen = app.dependency_overrides[get_session]()
     session = await session_gen.__anext__()
     try:
         await session.execute(update(Run).where(Run.id == run["id"]).values(created_at=long_ago))
-        await session.execute(
-            update(Action).where(Action.run_id == run["id"]).values(created_at=long_ago)
-        )
+        await session.execute(update(Action).where(Action.run_id == run["id"]).values(created_at=long_ago))
         await session.commit()
     finally:
         await session_gen.aclose()
 
-    last_week = row(await client.get("/admin/usage", params={"days": 7}))
-    assert (last_week["runs"], last_week["tool_calls"]) == (0, 0)
-    assert row(await client.get("/admin/usage", params={"days": 90})) == all_time
-    assert row(await client.get("/admin/usage")) == all_time
+    last_week = (await client.get("/admin/activity", params={"days": 7})).json()
+    assert all(item["tool_calls"] == 0 for item in last_week["rows"])
+    assert last_week["daily"] == []
+    wider, _ = row(await client.get("/admin/activity", params={"days": 90}))
+    assert wider["tool_calls"] == recent["tool_calls"]
 
-    assert (await client.get("/admin/usage", params={"days": 0})).status_code == 422
-    assert (await client.get("/admin/usage", params={"days": 9999})).status_code == 422
+    assert (await client.get("/admin/activity", params={"days": 0})).status_code == 422
+    assert (await client.get("/admin/activity", params={"days": 9999})).status_code == 422

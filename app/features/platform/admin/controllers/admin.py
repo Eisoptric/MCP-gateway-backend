@@ -28,23 +28,24 @@ from app.features.organization.org.controllers.org import serialize_member
 from app.models import AuditLog, User
 from app.features.execution.activity.services.zero_access import admin_audit_payload
 from app.schemas import (
-    AdminConnectionChannel,
+    AdminActivityRead,
+    AdminAllowedHost,
+    AdminApprovalCounts,
     AdminEventRead,
     AdminHealthCheck,
     AdminMemberCreateRequest,
     AdminMcpSummary,
-    AdminOrgConnections,
     AdminOrgDetail,
     AdminOrgOnboardRequest,
     AdminOrgSummary,
     AdminOrgUpdateRequest,
     AdminOverviewRead,
-    AdminRuntimeRead,
+    AdminPlatformRead,
+    AdminPolicySummary,
     AdminServiceStatus,
-    AdminSettingsRead,
     AdminStatsRead,
-    AdminUsageRow,
     AdminUserRead,
+    AdminWebhookSummary,
     AgentRead,
     MemberPasswordResetRequest,
     MemberRead,
@@ -99,10 +100,15 @@ def serialize_event(item: AuditLog) -> AdminEventRead:
     )
 
 
-def serialize_admin_user(user: User) -> AdminUserRead:
+def serialize_admin_user(user: User, security: dict | None = None) -> AdminUserRead:
     employee = user.employee
     org = user.organization
+    security = security or {}
     return AdminUserRead(
+        passkeys=security.get("passkeys", 0),
+        totp_enabled=bool(user.totp_enabled and user.totp_secret),
+        email_mfa=bool(user.email_mfa),
+        last_sign_in_at=security.get("last_sign_in_at"),
         id=user.id,
         email=user.email,
         name=user.name,
@@ -168,12 +174,23 @@ async def get_org(organization_id: str, session: SessionDep, _admin: PlatformAdm
     members = await member_service.list_members(session, org.id)
     agents = await admin_service.list_agents(session, org.id)
     servers = await admin_service.list_mcp_servers(session, org.id)
+    users = await admin_service.org_users(session, org.id)
+    security = await admin_service.user_security(session, [user.id for user in users])
+    from app.features.organization.org.services.subscription_service import serialize_subscription
+
     return AdminOrgDetail(
         **snap,
         members=[serialize_member(item) for item in members],
+        users=[serialize_admin_user(user, security.get(user.id)) for user in users],
         agents=[serialize_agent(item) for item in agents],
         health=AdminHealthCheck(**await admin_service.org_health(session, org)),
         mcp_servers=[serialize_mcp_server(item) for item in servers],
+        policies=[AdminPolicySummary(**item) for item in await admin_service.org_policies(session, org.id)],
+        tool_set_count=await admin_service.org_tool_set_count(session, org.id),
+        approvals=AdminApprovalCounts(**await admin_service.org_approvals(session, org.id)),
+        webhooks=AdminWebhookSummary(**await admin_service.org_webhooks(session, org.id)),
+        allowed_hosts=[AdminAllowedHost(**item) for item in await admin_service.allowed_hosts(session, org.id)],
+        subscription=serialize_subscription(org),
     )
 
 
@@ -191,8 +208,6 @@ async def update_org(
         name=body.name,
         status=body.status,
         plan=body.plan,
-        deployment_mode=body.deployment_mode,
-        runtime_region=body.runtime_region,
     )
     return serialize_org(await admin_service.org_snapshot(session, org))
 
@@ -304,39 +319,13 @@ async def list_org_agents(organization_id: str, session: SessionDep, _admin: Pla
 @router.get("/users", response_model=list[AdminUserRead])
 async def list_users(session: SessionDep, _admin: PlatformAdmin, page: Page):
     users = await admin_service.list_users(session, limit=page.limit, offset=page.offset)
-    return [serialize_admin_user(user) for user in users]
-
-
-@router.get("/connections", response_model=list[AdminOrgConnections])
-async def list_connections(session: SessionDep, _admin: PlatformAdmin):
-    rows = await admin_service.connections(session)
-    return [
-        AdminOrgConnections(
-            organization_id=item["organization_id"],
-            organization_name=item["organization_name"],
-            channels=[AdminConnectionChannel(**channel) for channel in item["channels"]],
-        )
-        for item in rows
-    ]
-
-
-@router.get("/runtimes", response_model=list[AdminRuntimeRead])
-async def list_runtimes(session: SessionDep, _admin: PlatformAdmin):
-    return [AdminRuntimeRead(**item) for item in await admin_service.runtimes(session)]
+    security = await admin_service.user_security(session, [user.id for user in users])
+    return [serialize_admin_user(user, security.get(user.id)) for user in users]
 
 
 @router.get("/mcp", response_model=AdminMcpSummary)
 async def get_mcp(session: SessionDep, _admin: PlatformAdmin):
     return AdminMcpSummary(**await admin_service.mcp_summary(session))
-
-
-@router.get("/usage", response_model=list[AdminUsageRow])
-async def get_usage(
-    session: SessionDep,
-    _admin: PlatformAdmin,
-    days: Annotated[int | None, Query(ge=1, le=366)] = None,
-):
-    return [AdminUsageRow(**item) for item in await admin_service.usage(session, days=days)]
 
 
 @router.get("/audit", response_model=list[AdminEventRead])
@@ -362,12 +351,20 @@ async def list_audit_event_names(session: SessionDep, _admin: PlatformAdmin):
     return await admin_service.event_names(session)
 
 
-@router.get("/settings", response_model=AdminSettingsRead)
-async def get_settings(session: SessionDep, _admin: PlatformAdmin):
-    payload = await admin_service.settings(session)
-    return AdminSettingsRead(
-        platform=payload["platform"],
-        security=payload["security"],
-        infrastructure=payload["infrastructure"],
-        admins=[serialize_admin_user(user) for user in payload["admins"]],
-    )
+@router.get("/activity", response_model=AdminActivityRead)
+async def get_activity(
+    session: SessionDep,
+    _admin: PlatformAdmin,
+    days: Annotated[int, Query(ge=1, le=366)] = 30,
+):
+    """Per organization over the last `days` days: tool calls by policy decision, approval
+    outcomes and webhook deliveries, and the platform's tool calls per day."""
+    return AdminActivityRead(**await admin_service.activity(session, days=days))
+
+
+@router.get("/platform", response_model=AdminPlatformRead)
+async def get_platform(session: SessionDep, _admin: PlatformAdmin):
+    payload = await admin_service.platform(session)
+    admins = payload.pop("admins")
+    security = await admin_service.user_security(session, [user.id for user in admins])
+    return AdminPlatformRead(**payload, admins=[serialize_admin_user(user, security.get(user.id)) for user in admins])

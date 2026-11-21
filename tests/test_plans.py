@@ -165,9 +165,8 @@ async def test_public_register_creates_a_personal_org(client, monkeypatch):
     org = next(item for item in listed if item["name"] == "Mina")
     assert org["kind"] == "personal"
     assert org["plan"] == "free"
-    assert org["runtime_status"] == "app"
     detail = await client.get(f"/admin/orgs/{org['id']}")
-    assert "Connector not connected" not in detail.json()["health"]["issues"]
+    assert detail.json()["health"]["issues"] == []
 
     team = await client.post(
         "/admin/orgs",
