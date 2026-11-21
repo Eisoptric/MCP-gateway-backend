@@ -419,7 +419,7 @@ Cloud Run + Cloud SQL + Memorystore，金庫使用 Cloud KMS。[部署 workflow]
 
 ### 部署與測試
 
-- `infra/gcp/move-project.sh` 給每個 repo 的部署身分整個專案層級的 `roles/run.developer`，所以任一條 pipeline 都能改動另一邊的 Cloud Run 資源。要避免這點，請把授權縮小到各自的服務與 migrate job。
+- 每個 repo 的部署身分都有整個專案層級的 `roles/run.developer`（見 [Identities](infra/gcp/README.md#identities)），所以任一條 pipeline 都能改動另一邊的 Cloud Run 資源。要避免這點，請把授權縮小到各自的服務與 migrate job。
 - `infra/gcp/rotate-db-password.sh` 只用替身指令跑過，沒有對第二個 Cloud SQL 執行個體實際執行過。
 - Cloudflare 免費方案下，Cloudflare 與 Cloud Run 之間沒有任何東西，`*.run.app` 位址是公開的，只靠 `ORIGIN_AUTH_SECRET` 擋住直接連線的請求。在輪替之前，外洩的值能讓任何人繞過 Cloudflare 的規則（見 [Ingress](infra/gcp/README.md#ingress-cloudflare-on-the-free-plan)）。
 - 對外的 uptime 檢查改由 `infra/gcp/uptime-checks.sh` 建立的 Cloud Monitoring 檢查負責（見 [Uptime checks from Cloud Monitoring](infra/gcp/README.md#uptime-checks-from-cloud-monitoring)）。這支腳本只對替身指令跑過；Cloudflare 的 Bot Fight Mode 會放行 Google 的探測，是從 worker 自己的檢查推論而來，尚未實際看到。
