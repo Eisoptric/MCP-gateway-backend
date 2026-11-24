@@ -149,12 +149,20 @@ jobs:
           PUBLIC_WS_URL: https://api.eisoptric.com
           GATEWAY_KMS_KEY: ${{ vars.GATEWAY_KMS_KEY }}
           LEGACY_PASSWORD_UNTIL: ${{ vars.LEGACY_PASSWORD_UNTIL }}
+          ANTHROPIC_ORGANIZATION_ID: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          ANTHROPIC_FEDERATION_RULE_ID: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          ANTHROPIC_WORKSPACE_ID: ${{ vars.ANTHROPIC_WORKSPACE_ID }}
+          ANTHROPIC_AUDIENCE: ${{ vars.ANTHROPIC_AUDIENCE }}
+          POLICY_LLM_MODEL: ${{ vars.POLICY_LLM_MODEL }}
         run: |
           python3 - <<'PY'
           import os
+          import re
           from datetime import date
           from pathlib import Path
 
+          safe = re.compile(r"^[A-Za-z0-9._:/@-]+$")
           values = {
               "EXPOSE_API_DOCS": "false",
               "DEFAULT_ORG_ID": os.environ.get("DEFAULT_ORG_ID") or "org_default",
@@ -170,6 +178,19 @@ jobs:
               # Cloud Logging cannot group a request's lines or link them to Cloud Trace.
               "GOOGLE_CLOUD_PROJECT": os.environ["GCP_PROJECT_ID"],
           }
+          for name in (
+              "ANTHROPIC_ORGANIZATION_ID",
+              "ANTHROPIC_FEDERATION_RULE_ID",
+              "ANTHROPIC_SERVICE_ACCOUNT_ID",
+              "ANTHROPIC_WORKSPACE_ID",
+              "ANTHROPIC_AUDIENCE",
+              "POLICY_LLM_MODEL",
+          ):
+              raw = (os.environ.get(name) or "").strip()
+              if raw:
+                  if not safe.fullmatch(raw):
+                      raise SystemExit(f"Invalid {name}: {raw!r}")
+                  values[name] = raw
           legacy_until = (os.environ.get("LEGACY_PASSWORD_UNTIL") or "").strip()
           if legacy_until:
               # The app parses this on every legacy sign-in; a bad value would fail each one.
@@ -204,9 +225,6 @@ jobs:
           api="${api},GATEWAY_GOOGLE_OAUTH_CLIENT_ID=GATEWAY_GOOGLE_OAUTH_CLIENT_ID:latest"
           api="${api},GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET=GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET:latest"
           api="${api},RESEND_API_KEY=RESEND_API_KEY:latest,RESEND_FROM=RESEND_FROM:latest"
-          api="${api},POLICY_LLM_BASE_URL=POLICY_LLM_BASE_URL:latest"
-          api="${api},POLICY_LLM_API_KEY=POLICY_LLM_API_KEY:latest"
-          api="${api},POLICY_LLM_MODEL=POLICY_LLM_MODEL:latest"
           api="${api},ORIGIN_AUTH_SECRET=ORIGIN_AUTH_SECRET:latest"
           if [ -n "${CONSOLE_PROXY_SECRET_NAME}" ]; then
             api="${api},CONSOLE_PROXY_SECRET=${CONSOLE_PROXY_SECRET_NAME}:latest"

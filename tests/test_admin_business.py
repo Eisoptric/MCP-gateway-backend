@@ -56,9 +56,10 @@ async def test_platform_view_names_settings_but_never_secret_values(client, monk
     from app.core.config import get_settings
 
     settings = get_settings()
-    monkeypatch.setattr(settings, "policy_llm_base_url", "https://api.anthropic.com/v1/")
-    monkeypatch.setattr(settings, "policy_llm_model", "claude-sonnet-5-5")
-    monkeypatch.setattr(settings, "policy_llm_api_key", "sk-ant-never-shown")
+    monkeypatch.setattr(settings, "anthropic_organization_id", "00000000-0000-0000-0000-000000000001")
+    monkeypatch.setattr(settings, "anthropic_federation_rule_id", "fdrl_01TESTRULE")
+    monkeypatch.setattr(settings, "anthropic_service_account_id", "svac_01TESTSA")
+    monkeypatch.setattr(settings, "policy_llm_model", "claude-sonnet-4-6")
     monkeypatch.setattr(settings, "resend_api_key", "re_never_shown")
     monkeypatch.setattr(settings, "resend_from", "Eisoptric <no-reply@eisoptric.com>")
     monkeypatch.setenv("CONSOLE_PROXY_SECRET", "proxy-never-shown")
@@ -66,10 +67,17 @@ async def test_platform_view_names_settings_but_never_secret_values(client, monk
     response = await client.get("/admin/platform")
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["policy_model"] == {"configured": True, "host": "api.anthropic.com", "model": "claude-sonnet-5-5"}
+    assert body["policy_model"] == {
+        "configured": True,
+        "host": "api.anthropic.com",
+        "auth": "workload_identity",
+        "federation_rule_id": "fdrl_01TESTRULE",
+        "service_account_id": "svac_01TESTSA",
+        "model": "claude-sonnet-4-6",
+    }
     assert body["email"] == {"configured": True, "from_domain": "eisoptric.com"}
     assert body["secrets"]["console_proxy"] is True
-    for secret in ("sk-ant-never-shown", "re_never_shown", "proxy-never-shown"):
+    for secret in ("re_never_shown", "proxy-never-shown"):
         assert secret not in response.text
 
 

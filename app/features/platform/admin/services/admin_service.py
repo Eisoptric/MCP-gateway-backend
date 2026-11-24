@@ -659,13 +659,13 @@ class AdminService:
     async def platform(self, session: AsyncSession) -> dict:
         """The configuration this deployment runs with. Never a secret's value, only whether it is set."""
         import os
-        from urllib.parse import urlparse
+
+        from app.features.policy.policies.services.policy_llm import policy_model_status
 
         def present(name: str) -> bool:
             return bool(os.environ.get(name, "").strip())
 
         admins = [user for user in await self.list_users(session) if user.is_platform_admin]
-        model_host = urlparse(settings.policy_llm_base_url or "").hostname or ""
         sender = (settings.resend_from or "").strip()
         return {
             "revision": os.environ.get("K_REVISION", "local"),
@@ -673,11 +673,7 @@ class AdminService:
             "cors_origins": [item.strip() for item in settings.cors_origins.split(",") if item.strip()],
             "webauthn_rp_id": (settings.webauthn_rp_id or "").strip() or "per origin",
             "session_ttl_days": settings.session_ttl_days,
-            "policy_model": {
-                "configured": bool(model_host and settings.policy_llm_model and settings.policy_llm_api_key),
-                "host": model_host,
-                "model": settings.policy_llm_model,
-            },
+            "policy_model": policy_model_status(),
             "email": {
                 "configured": bool(settings.resend_api_key and sender),
                 "from_domain": sender.rsplit("@", 1)[-1].rstrip(">") if "@" in sender else "",

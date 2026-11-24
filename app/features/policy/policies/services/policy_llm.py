@@ -7,9 +7,13 @@ the status guard below.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 import re
+import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -253,28 +257,213 @@ def _marker_prefix(text: str) -> int:
 
 logger = logging.getLogger(__name__)
 
+_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
+_ANTHROPIC_VERSION = "2023-06-01"
+_JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+_TOKEN_REFRESH_MARGIN_SECONDS = 60.0
 
-def _model_refused(status_code: int, body: str) -> HTTPException:
-    """Say why the model provider refused, without its body. The body goes to the log only.
+# Guarded by _token_lock so concurrent batches on cold start exchange only ONE Google OIDC
+# assertion (Anthropic's JTI replay protection rejects exchanging the same JWT twice).
+_token_lock = asyncio.Lock()
+_cached_access_token: str = ""
+_cached_token_expires_at: float = 0.0
+_cached_token_key: tuple[str, ...] = ()
 
-    Every refusal used to read "Policy model request failed", in the response and nowhere else,
-    so a wrong key, model name or URL could not be told apart.
-    """
+
+def _wif_key() -> tuple[str, ...]:
     settings = get_settings()
+    return (
+        settings.anthropic_organization_id.strip(),
+        settings.anthropic_federation_rule_id.strip(),
+        settings.anthropic_service_account_id.strip(),
+        settings.anthropic_workspace_id.strip(),
+        (settings.anthropic_audience or "https://api.anthropic.com").strip(),
+    )
+
+
+def policy_model_status() -> dict[str, Any]:
+    settings = get_settings()
+    configured = _configured()
+    return {
+        "configured": configured,
+        "host": "api.anthropic.com" if configured else "",
+        "auth": "workload_identity",
+        "federation_rule_id": settings.anthropic_federation_rule_id.strip(),
+        "service_account_id": settings.anthropic_service_account_id.strip(),
+        "model": settings.policy_llm_model.strip(),
+    }
+
+
+def _reset_credentials() -> None:
+    global _cached_access_token, _cached_token_expires_at, _cached_token_key
+    _cached_access_token = ""
+    _cached_token_expires_at = 0.0
+    _cached_token_key = ()
+
+
+def _fetch_oidc_assertion(audience: str) -> str:
+    """Fetch a fresh OIDC JWT for Anthropic Workload Identity Federation.
+
+    Runs in a worker thread because reading token files or querying the Cloud Run
+    metadata server (`instance/service-accounts/default/identity?audience=...&format=full`)
+    performs synchronous I/O. Never cache this assertion: JTI replay protection
+    allows each JWT to be exchanged at most once.
+    """
+    token_file = os.environ.get("ANTHROPIC_IDENTITY_TOKEN_FILE", "").strip()
+    if token_file:
+        token = Path(token_file).read_text(encoding="utf-8").strip()
+        if not token:
+            raise RuntimeError("ANTHROPIC_IDENTITY_TOKEN_FILE is empty")
+        return token
+    inline_token = os.environ.get("ANTHROPIC_IDENTITY_TOKEN", "").strip()
+    if inline_token:
+        return inline_token
+
+    from google.auth.transport.requests import Request
+    from google.oauth2 import id_token
+
+    token = id_token.fetch_id_token(Request(), audience)
+    if not token:
+        raise RuntimeError("Google Cloud metadata server returned an empty ID token")
+    return str(token)
+
+
+async def _exchange_assertion(assertion: str) -> tuple[str, float]:
     from app.features.mcp.servers.services.mcp_remote import redact
 
+    settings = get_settings()
+    payload: dict[str, str] = {
+        "grant_type": _JWT_BEARER_GRANT,
+        "assertion": assertion,
+        "federation_rule_id": settings.anthropic_federation_rule_id.strip(),
+        "organization_id": settings.anthropic_organization_id.strip(),
+        "service_account_id": settings.anthropic_service_account_id.strip(),
+    }
+    workspace_id = settings.anthropic_workspace_id.strip()
+    if workspace_id:
+        payload["workspace_id"] = workspace_id
+
+    url = f"{_ANTHROPIC_BASE_URL}/v1/oauth/token"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(url, json=payload)
+    except httpx.HTTPError as exc:
+        logger.warning("Anthropic token endpoint unreachable at %s: %s", url, type(exc).__name__)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Could not reach Anthropic token exchange endpoint.",
+        ) from exc
+
+    if response.status_code >= 400:
+        logger.warning(
+            "Anthropic Workload Identity exchange refused: HTTP %s (rule %s, sa %s): %s",
+            response.status_code,
+            payload["federation_rule_id"],
+            payload["service_account_id"],
+            redact(response.text, assertion)[:500],
+        )
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"Anthropic Workload Identity token exchange failed (HTTP {response.status_code}). "
+            "Check ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID, ANTHROPIC_SERVICE_ACCOUNT_ID and ANTHROPIC_AUDIENCE.",
+        )
+
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Anthropic token exchange returned an unreadable response") from exc
+    access_token = body.get("access_token") if isinstance(body, dict) else None
+    if not isinstance(access_token, str) or not access_token.strip():
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Anthropic token exchange did not return an access token")
+    raw_expires = body.get("expires_in", 3600) if isinstance(body, dict) else 3600
+    try:
+        expires_in = float(raw_expires)
+    except (TypeError, ValueError):
+        expires_in = 3600.0
+    expires_at = time.monotonic() + max(expires_in - _TOKEN_REFRESH_MARGIN_SECONDS, 0.0)
+    return access_token.strip(), expires_at
+
+
+async def _access_token() -> str:
+    global _cached_access_token, _cached_token_expires_at, _cached_token_key
+    from google.auth.exceptions import GoogleAuthError
+
+    key = _wif_key()
+    now = time.monotonic()
+    if _cached_access_token and _cached_token_key == key and now < _cached_token_expires_at:
+        return _cached_access_token
+
+    async with _token_lock:
+        key = _wif_key()
+        now = time.monotonic()
+        if _cached_access_token and _cached_token_key == key and now < _cached_token_expires_at:
+            return _cached_access_token
+        audience = key[4]
+        try:
+            assertion = await asyncio.to_thread(_fetch_oidc_assertion, audience)
+        except (GoogleAuthError, OSError, RuntimeError) as exc:
+            logger.warning("Policy model could not obtain OIDC identity token: %s", type(exc).__name__)
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                "Could not obtain an OIDC identity token for Anthropic Workload Identity. Check the Cloud Run runtime service account.",
+            ) from exc
+        token, expires_at = await _exchange_assertion(assertion)
+        _cached_access_token = token
+        _cached_token_expires_at = expires_at
+        _cached_token_key = key
+        return token
+
+
+def _messages_payload(messages: list[dict[str, str]], *, stream: bool = False) -> dict[str, Any]:
+    system_parts: list[str] = []
+    turns: list[dict[str, str]] = []
+    for item in messages:
+        role = str(item.get("role") or "user")
+        content = str(item.get("content") or "")
+        if role == "system":
+            if content:
+                system_parts.append(content)
+        else:
+            turns.append({"role": role, "content": content})
+    payload: dict[str, Any] = {
+        "model": get_settings().policy_llm_model.strip(),
+        "max_tokens": _MAX_OUTPUT_TOKENS,
+        "messages": turns,
+    }
+    if system_parts:
+        payload["system"] = "\n\n".join(system_parts)
+    if stream:
+        payload["stream"] = True
+    return payload
+
+
+def _anthropic_headers(token: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {token}",
+        "anthropic-version": _ANTHROPIC_VERSION,
+    }
+
+
+def _model_refused(status_code: int, body: str, url: str, token: str = "") -> HTTPException:
+    """Say why Anthropic refused, without its body. The body goes to the log only."""
+    from app.features.mcp.servers.services.mcp_remote import redact
+
+    if status_code == 401:
+        _reset_credentials()
     logger.warning(
         "Policy model refused: HTTP %s from %s (model %s): %s",
         status_code,
-        settings.policy_llm_base_url,
-        settings.policy_llm_model,
-        redact(body, settings.policy_llm_api_key)[:500],
+        url,
+        get_settings().policy_llm_model.strip(),
+        redact(body, token)[:500],
     )
-    # Gemini answers a bad key with 400, not 401, so the provider's text decides.
-    if status_code in (401, 403) or (status_code == 400 and "api key" in body.lower()):
-        detail = f"Policy model rejected the API key (HTTP {status_code}). Check POLICY_LLM_API_KEY."
+    if status_code in (401, 403):
+        detail = (
+            f"Policy model rejected the Workload Identity token (HTTP {status_code}). "
+            "Check the Anthropic Service Account permissions and Federation Rule."
+        )
     elif status_code == 404:
-        detail = "Policy model endpoint or model not found (HTTP 404). Check POLICY_LLM_BASE_URL and POLICY_LLM_MODEL."
+        detail = "Policy model not found on Anthropic (HTTP 404). Check POLICY_LLM_MODEL."
     elif status_code == 429:
         detail = "Policy model is rate limited or out of credit (HTTP 429). Try again later."
     elif status_code in (400, 422):
@@ -286,24 +475,11 @@ def _model_refused(status_code: int, body: str) -> HTTPException:
     return HTTPException(status.HTTP_502_BAD_GATEWAY, detail)
 
 
-def _sampling() -> dict[str, Any]:
-    """temperature 0 where the provider takes it.
-
-    Anthropic's OpenAI-compatible endpoint refuses `temperature` for its current models with a 400,
-    so a request there leaves it out.
-    """
-    from urllib.parse import urlparse
-
-    host = (urlparse(get_settings().policy_llm_base_url).hostname or "").lower()
-    return {} if host == "api.anthropic.com" else {"temperature": 0}
-
-
-def _model_unreachable(exc: httpx.HTTPError) -> HTTPException:
-    settings = get_settings()
-    logger.warning("Policy model unreachable at %s: %s", settings.policy_llm_base_url, type(exc).__name__)
+def _model_unreachable(exc: httpx.HTTPError, url: str) -> HTTPException:
+    logger.warning("Policy model unreachable at %s: %s", url, type(exc).__name__)
     if isinstance(exc, httpx.TimeoutException):
         return HTTPException(status.HTTP_504_GATEWAY_TIMEOUT, "Policy model did not answer in time. Try fewer tools.")
-    return HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not reach the policy model. Check POLICY_LLM_BASE_URL.")
+    return HTTPException(status.HTTP_502_BAD_GATEWAY, "Could not reach Anthropic API.")
 
 
 _MAX_OUTPUT_TOKENS = 16_384
@@ -311,32 +487,39 @@ OPTIMIZE_BATCH_SIZE = 20
 
 
 async def _chat(messages: list[dict[str, str]]) -> dict[str, Any]:
-    settings = get_settings()
-    base = settings.policy_llm_base_url.rstrip("/")
-    payload = {"model": settings.policy_llm_model, **_sampling(), "max_tokens": _MAX_OUTPUT_TOKENS, "messages": messages}
+    url = f"{_ANTHROPIC_BASE_URL}/v1/messages"
+    token = await _access_token()
+    payload = _messages_payload(messages, stream=False)
     try:
         async with httpx.AsyncClient(timeout=90) as client:
             response = await client.post(
-                f"{base}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.policy_llm_api_key}"},
+                url,
+                headers=_anthropic_headers(token),
                 json=payload,
             )
     except httpx.HTTPError as exc:
-        raise _model_unreachable(exc) from exc
+        raise _model_unreachable(exc, url) from exc
     if response.status_code >= 400:
-        raise _model_refused(response.status_code, response.text)
+        raise _model_refused(response.status_code, response.text, url, token)
     try:
         body = response.json()
     except ValueError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Policy model returned an unreadable response") from exc
-    try:
-        message = body["choices"][0]["message"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Policy model returned an unreadable response") from exc
-    if not isinstance(message, dict):
+    blocks = body.get("content") if isinstance(body, dict) else None
+    if not isinstance(blocks, list):
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Policy model returned an unreadable response")
+    text_parts: list[str] = []
+    thinking_parts: list[str] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        kind = block.get("type")
+        if kind == "text" and isinstance(block.get("text"), str):
+            text_parts.append(block["text"])
+        elif kind == "thinking" and isinstance(block.get("thinking"), str):
+            thinking_parts.append(block["thinking"])
     try:
-        return _parse_model_text(_as_text(message.get("content")), _as_text(message.get("reasoning_content") or message.get("reasoning")))
+        return _parse_model_text("".join(text_parts), "".join(thinking_parts))
     except (ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Policy model returned an unreadable response") from exc
 
@@ -386,27 +569,22 @@ def _prompt_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 async def _iter_deltas(messages: list[dict[str, str]]):
-    settings = get_settings()
     if not _configured():
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "No policy model is configured")
-    payload = {
-        "model": settings.policy_llm_model,
-        **_sampling(),
-        "max_tokens": _MAX_OUTPUT_TOKENS,
-        "stream": True,
-        "messages": messages,
-    }
+    url = f"{_ANTHROPIC_BASE_URL}/v1/messages"
+    token = await _access_token()
+    payload = _messages_payload(messages, stream=True)
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=20.0)) as client:
             async with client.stream(
                 "POST",
-                f"{settings.policy_llm_base_url.rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.policy_llm_api_key}"},
+                url,
+                headers=_anthropic_headers(token),
                 json=payload,
             ) as response:
                 if response.status_code >= 400:
                     await response.aread()
-                    raise _model_refused(response.status_code, response.text)
+                    raise _model_refused(response.status_code, response.text, url, token)
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
                         continue
@@ -419,31 +597,38 @@ async def _iter_deltas(messages: list[dict[str, str]]):
                         chunk = json.loads(data)
                     except json.JSONDecodeError:
                         continue
-                    choices = chunk.get("choices") if isinstance(chunk, dict) else None
-                    if not isinstance(choices, list) or not choices:
+                    if not isinstance(chunk, dict):
                         continue
-                    delta = choices[0].get("delta") if isinstance(choices[0], dict) else None
+                    event_type = chunk.get("type")
+                    if event_type == "message_stop":
+                        break
+                    if event_type == "error":
+                        from app.features.mcp.servers.services.mcp_remote import redact
+
+                        logger.warning(
+                            "Policy model stream error from %s (model %s): %s",
+                            url,
+                            get_settings().policy_llm_model.strip(),
+                            redact(data, token)[:500],
+                        )
+                        raise HTTPException(
+                            status.HTTP_502_BAD_GATEWAY,
+                            "Policy model provider had an error during streaming. Try again later.",
+                        )
+                    if event_type != "content_block_delta":
+                        continue
+                    delta = chunk.get("delta")
                     if not isinstance(delta, dict):
                         continue
-                    message = choices[0].get("message") if isinstance(choices[0].get("message"), dict) else {}
-                    reasoning = _as_text(delta.get("reasoning_content") or delta.get("reasoning") or message.get("reasoning_content"))
-                    content = _as_text(delta.get("content") or message.get("content"))
-                    if reasoning:
-                        yield "reasoning", reasoning
-                    if content:
-                        yield "content", content
+                    delta_type = delta.get("type")
+                    if delta_type == "thinking_delta" and isinstance(delta.get("thinking"), str) and delta["thinking"]:
+                        yield "reasoning", delta["thinking"]
+                    elif delta_type == "text_delta" and isinstance(delta.get("text"), str) and delta["text"]:
+                        yield "content", delta["text"]
     except HTTPException:
         raise
     except httpx.HTTPError as exc:
-        raise _model_unreachable(exc) from exc
-
-
-def _as_text(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    if isinstance(value, list):
-        return "".join(_as_text(item.get("text") or item.get("content") or "") if isinstance(item, dict) else _as_text(item) for item in value)
-    return ""
+        raise _model_unreachable(exc, url) from exc
 
 
 def _parse_model_text(content: str, reasoning: str) -> dict[str, Any]:
@@ -479,9 +664,7 @@ async def _complete(tools: list[dict[str, Any]], instructions: str = "") -> dict
 
 async def analyze_tools(tools: list[dict[str, Any]], instructions: str = "") -> tuple[list[dict[str, Any]], bool]:
     """Return one analysis per tool and whether a model was actually called."""
-    settings = get_settings()
-    configured = bool(settings.policy_llm_base_url and settings.policy_llm_api_key and settings.policy_llm_model)
-    if not configured:
+    if not _configured():
         return (
             [_insufficient(tool, "No policy model is configured. This tool was not analyzed.") for tool in tools],
             False,
@@ -604,7 +787,12 @@ def _analysis_messages(tools: list[dict[str, Any]], instructions: str) -> list[d
 
 def _configured() -> bool:
     settings = get_settings()
-    return bool(settings.policy_llm_base_url and settings.policy_llm_api_key and settings.policy_llm_model)
+    return bool(
+        settings.policy_llm_model.strip()
+        and settings.anthropic_organization_id.strip()
+        and settings.anthropic_federation_rule_id.strip()
+        and settings.anthropic_service_account_id.strip()
+    )
 
 
 def _tool_names(definition: dict[str, Any]) -> set[str]:

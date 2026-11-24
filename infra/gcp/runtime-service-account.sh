@@ -2,7 +2,7 @@
 # Creates the identity the backend runs as on Cloud Run, with only what it uses:
 #   - read access to each named runtime secret (not to every secret in the project)
 #   - MAC signing on the single KMS key named by GATEWAY_KMS_KEY
-#   - Cloud SQL client, and writing logs and metrics
+#   - Cloud SQL client, and writing logs and metrics (its OIDC identity also authenticates to Anthropic WIF)
 # Without it, Cloud Run uses the default compute service account, which usually
 # holds roles/editor on the whole project.
 #
@@ -22,7 +22,7 @@ DEPLOYER_SA="${DEPLOYER_SA:-}"
 # Secrets the API and worker mount (deploy-cloud-run.yml). Add REDIS_URL_SECRET /
 # REDIS_CA_SECRET names when those variables are used, and SEED_USER_EMAIL only while
 # SEED_ON_DEPLOY is true.
-RUNTIME_SECRETS="${RUNTIME_SECRETS:-DATABASE_URL REDIS_URL GATEWAY_GITHUB_OAUTH_CLIENT_ID GATEWAY_GITHUB_OAUTH_CLIENT_SECRET GATEWAY_GOOGLE_OAUTH_CLIENT_ID GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET RESEND_API_KEY RESEND_FROM POLICY_LLM_BASE_URL POLICY_LLM_API_KEY POLICY_LLM_MODEL ORIGIN_AUTH_SECRET}"
+RUNTIME_SECRETS="${RUNTIME_SECRETS:-DATABASE_URL REDIS_URL GATEWAY_GITHUB_OAUTH_CLIENT_ID GATEWAY_GITHUB_OAUTH_CLIENT_SECRET GATEWAY_GOOGLE_OAUTH_CLIENT_ID GATEWAY_GOOGLE_OAUTH_CLIENT_SECRET RESEND_API_KEY RESEND_FROM ORIGIN_AUTH_SECRET}"
 
 # GATEWAY_KMS_KEY names a key version; IAM is granted on the key that owns it.
 KMS_KEY="${GATEWAY_KMS_KEY%/cryptoKeyVersions/*}"
@@ -91,5 +91,7 @@ if ((${#missing[@]} > 0)); then
   echo "These secrets do not exist yet, so nothing was granted on them: ${missing[*]}"
   echo "Create them, then run this script again."
 fi
+RUNTIME_SA_UNIQUE_ID="$(gcloud iam service-accounts describe "${RUNTIME_SA}" --project "${GCP_PROJECT_ID}" --format='value(uniqueId)')"
 echo "Runtime service account: ${RUNTIME_SA}"
-echo "Set the GitHub variable RUNTIME_SERVICE_ACCOUNT to that email."
+echo "Runtime service account OIDC subject (sub): ${RUNTIME_SA_UNIQUE_ID}"
+echo "Set the GitHub variable RUNTIME_SERVICE_ACCOUNT to that email, and bind the Anthropic Federation Rule subject to ${RUNTIME_SA_UNIQUE_ID}."

@@ -26,8 +26,11 @@ class Settings(BaseSettings):
     gateway_secret_project: str = ""
     resend_api_key: str = ""
     resend_from: str = ""
-    policy_llm_base_url: str = ""
-    policy_llm_api_key: str = ""
+    anthropic_organization_id: str = ""
+    anthropic_federation_rule_id: str = ""
+    anthropic_service_account_id: str = ""
+    anthropic_workspace_id: str = ""
+    anthropic_audience: str = "https://api.anthropic.com"
     policy_llm_model: str = ""
     # Connection pool, per process. Instances x (pool_size + max_overflow) must stay under the
     # database's connection limit: 10 instances at the defaults can open 150.
