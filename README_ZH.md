@@ -247,7 +247,7 @@ curl -s -X POST localhost:8000/mcp-servers \
 
 工具集中標記為需要核准的項目，不論政策怎麼說都需要核准。建立組織時產生的預設政策，允許權限為唯讀的工具，`write`、`admin` 與 `mutate` 則需要核准；連接伺服器時會把新工具的規則加進去。既有組織不會被改寫。預設政策可以像其他政策一樣暫停或刪除；刪除後不會被自動重建，沒有政策規則的工具改由 agent 的工具集決定。
 
-`/policies/{id}/validate`、`/simulate` 與 `/activate` 用來在政策生效前檢查它。`/policies/generate` 與 `/policies/{id}/optimize`（各自也有 `/stream` 版本）會請 `POLICY_LLM_BASE_URL` 上的模型為每個工具提出一條規則。模型無法啟用政策，它沒有分類的工具維持拒絕，而且這些路由每小時每位成員限 20 次、每個組織限 60 次。
+`/policies/{id}/validate`、`/simulate` 與 `/activate` 用來在政策生效前檢查它。`/policies/generate` 與 `/policies/{id}/optimize`（各自也有 `/stream` 版本）會透過 Anthropic Workload Identity Federation（免靜態 API Key）呼叫 Claude（`POLICY_LLM_MODEL`）為每個工具提出一條規則。模型無法啟用政策，它沒有分類的工具維持拒絕，而且這些路由每小時每位成員限 20 次、每個組織限 60 次。
 
 ### 核准
 
@@ -296,7 +296,7 @@ Agent 錢包與 x402 付款先前已移除（遷移 `039_drop_wallets_x402`）�
 | `GATEWAY_EMBED_WORKER` | `true` | 在 API 行程中執行核准到期與 Webhook 的 worker |
 | `GATEWAY_SECRET_PROJECT` | 空 | 用於 Secret Manager 的 Google Cloud 專案；留空則把密封的秘密存在資料庫 |
 | `RESEND_API_KEY` / `RESEND_FROM` | 空 | 寄送邀請、驗證碼與通知的 Email 服務 |
-| `POLICY_LLM_BASE_URL` / `POLICY_LLM_API_KEY` / `POLICY_LLM_MODEL` | 空 | 用於草擬政策規則、相容 OpenAI 的 `/chat/completions` 端點 |
+| `POLICY_LLM_MODEL` / `ANTHROPIC_ORGANIZATION_ID` / `ANTHROPIC_FEDERATION_RULE_ID` / `ANTHROPIC_SERVICE_ACCOUNT_ID` / `ANTHROPIC_WORKSPACE_ID` / `ANTHROPIC_AUDIENCE` | 空（`ANTHROPIC_AUDIENCE` 預設 `https://api.anthropic.com`） | 用於草擬政策規則的 Claude 模型與 Anthropic Workload Identity Federation 設定（以 Cloud Run OIDC token 向 `/v1/oauth/token` 換發短期憑證，免 API Key） |
 | `LEGACY_PASSWORD_UNTIL` | 空 | ISO 日期，在這天之前舊版（argon2 之前）密碼仍可使用；留空表示一律不接受。這個日期還沒到之前，每次登入失敗都會一併送出舊版證明（包含原始密碼），所以只在還有 2026-10-16 以前建立的帳號時才設定 |
 
 直接從行程環境讀取：

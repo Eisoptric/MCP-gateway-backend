@@ -214,6 +214,12 @@ Backend only:
 | `CONSOLE_PROXY_SECRET_NAME` | variable, secret name shared with the console (set the same variable on Frontend) | console users share the per-address login limits |
 | `DEFAULT_ORG_ID`, `DEFAULT_ACTOR_ID` | variable | `org_default`, `user_operator` |
 | `SESSION_TTL_DAYS` | variable | `7` |
+| `POLICY_LLM_MODEL` | variable, Claude model name on `api.anthropic.com` (e.g. `claude-sonnet-4-6`) | policy drafting off |
+| `ANTHROPIC_ORGANIZATION_ID` | variable, Anthropic organization UUID | policy drafting off |
+| `ANTHROPIC_FEDERATION_RULE_ID` | variable, Anthropic Workload Identity federation rule (`fdrl_...`) | policy drafting off |
+| `ANTHROPIC_SERVICE_ACCOUNT_ID` | variable, Anthropic service account (`svac_...`) | policy drafting off |
+| `ANTHROPIC_WORKSPACE_ID` | variable, Anthropic workspace (`wrkspc_...`, when the rule spans multiple workspaces) | unset |
+| `ANTHROPIC_AUDIENCE` | variable, OIDC audience requested from Google's metadata server | `https://api.anthropic.com` |
 | Provisioning: `CLOUD_SQL_*`, `REDIS_INSTANCE`, `REDIS_TIER`, `REDIS_SIZE_GB`, `VPC_NETWORK`, `SERVERLESS_VPC_CONNECTOR_RANGE`, `SETUP_RUNTIME_SERVICE_ACCOUNT` | variable | see [Provision data plane](#provision-data-plane) |
 
 The public origins are fixed in the workflows, not read from GitHub: the backend sets
@@ -229,11 +235,12 @@ table below), so the deploy job never reads their values:
 | `ORIGIN_AUTH_SECRET` | yes on Cloud Run |
 | `GATEWAY_GITHUB_OAUTH_CLIENT_ID` / `_SECRET`, `GATEWAY_GOOGLE_OAUTH_CLIENT_ID` / `_SECRET` | for social sign-in |
 | `RESEND_API_KEY`, `RESEND_FROM` | for email |
-| `POLICY_LLM_BASE_URL`, `POLICY_LLM_API_KEY`, `POLICY_LLM_MODEL` | for policy drafting: an OpenAI-compatible `/chat/completions` endpoint, its key and the model name; drafting is off without them |
 | `SEED_USER_EMAIL` | only read when `SEED_ON_DEPLOY=true` |
 
 GitHub repository secrets with those names are left over from before the move to Secret Manager.
-Nothing reads them; delete them. The same goes for `GATEWAY_KEM_SEED`, which the app stopped reading
+Nothing reads them; delete them. The same goes for `POLICY_LLM_BASE_URL`, `POLICY_LLM_API_KEY` and
+`POLICY_LLM_MODEL` in Secret Manager (Claude policy drafting now exchanges the Cloud Run runtime
+service account's Google OIDC token with Anthropic Workload Identity Federation, with no API key) and `GATEWAY_KEM_SEED`, which the app stopped reading
 when tenant keys moved to Cloud KMS. Delete `GATEWAY_KEM_SEED` only after every stored value has been
 re-sealed under the KMS key.
 
@@ -259,7 +266,6 @@ unmounted.
 | `REDIS_URL` (or `REDIS_URL_SECRET`), `REDIS_CA_SECRET` | yes | yes | no |
 | `RESEND_API_KEY`, `RESEND_FROM` | yes | yes (approval expiry sends the task-outcome email) | no |
 | `GATEWAY_GITHUB_OAUTH_*`, `GATEWAY_GOOGLE_OAUTH_*` | yes | no | no |
-| `POLICY_LLM_API_KEY` | yes | no | no |
 | `ORIGIN_AUTH_SECRET` | yes | no (internal ingress; fails closed) | no |
 | `CONSOLE_PROXY_SECRET_NAME` (when set) | yes | no | no |
 | `SEED_USER_EMAIL` | only with `SEED_ON_DEPLOY=true` | no | no |
@@ -295,6 +301,10 @@ every secret and use every KMS key through the metadata server.
 - `roles/secretmanager.secretAccessor` on each runtime secret by name, not project-wide
 - `roles/cloudkms.signerVerifier` on the one key named by `GATEWAY_KMS_KEY`, the MAC key the app derives tenant keys with (`pq_crypto.py`)
 - `roles/cloudsql.client`, `roles/logging.logWriter`, `roles/monitoring.metricWriter`
+
+It also prints `gateway-runtime`'s numeric `uniqueId` (`sub`), which you bind in Anthropic's
+Workload Identity Federation rule (`https://accounts.google.com`, audience `https://api.anthropic.com`)
+so the API exchanges Cloud Run OIDC tokens for short-lived Anthropic access tokens without an API key.
 
 Redis needs no IAM: access is by network plus AUTH.
 
